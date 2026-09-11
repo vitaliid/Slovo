@@ -1,8 +1,8 @@
-﻿program Slovo;
+program Slovo;
 
 uses
   Vcl.Forms,
-  Unit1 in 'Unit1.pas' {Form1};
+  Presentation.Views in 'Presentation.Views.pas' {MainForm};
 
 {$R *.res}
 
@@ -10,6 +10,6 @@ begin
   Application.Initialize;
   Application.MainFormOnTaskbar := True;
   Application.Title := 'Slovo';
-  Application.CreateForm(TForm1, Form1);
+  Application.CreateForm(TMainForm, MainForm);
   Application.Run;
 end.
