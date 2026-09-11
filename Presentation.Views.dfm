@@ -1,8 +1,8 @@
-﻿object Form1: TForm1
+object MainForm: TMainForm
   Left = 0
   Top = 0
   Caption = 'Slovo'
-  ClientHeight = 441
+  ClientHeight = 446
   ClientWidth = 624
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
@@ -10,15 +10,16 @@
   Font.Height = -12
   Font.Name = 'Segoe UI'
   Font.Style = []
-  Menu = MainMenu1
+  Menu = mmMain
+  Position = poScreenCenter
   TextHeight = 15
-  object MainMenu1: TMainMenu
+  object mmMain: TMainMenu
     Left = 32
     Top = 32
     object miFile: TMenuItem
-      Caption = '&Файл'
+      Caption = '&'#1060#1072#1081#1083
       object miExit: TMenuItem
-        Caption = '&Вихід'
+        Caption = '&'#1042#1080#1093#1110#1076
         OnClick = miExitClick
       end
     end
