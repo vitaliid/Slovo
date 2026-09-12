@@ -1,4 +1,4 @@
-# Slovo
+﻿# Slovo
 
 A Windows desktop reader for a Christian library — the works of Ellen G. White,
 Bible translations, and related historical and devotional books — with fast
@@ -61,6 +61,26 @@ msbuild Slovo.dproj /p:Config=Release /p:Platform=Win64
 `Slovo.res` is regenerated during the build from settings in `Slovo.dproj`
 (icon, version info), so a build may leave it modified in the working tree. If
 the application icon ever looks wrong, delete `Slovo.res` and rebuild.
+
+## Interface languages
+
+The interface ships in Ukrainian (default), Russian and English, switched from
+**View → Language** while the program is running - no restart, no separate
+build, no extra files.
+
+Every translated string lives in `Presentation.Strings` as one row of a
+`[string, language]` table; the `.dfm` files hold English placeholders that
+exist only for the form designer and are overwritten at run time by
+`TMainForm.ApplyStrings`. Adding a language means adding a value to
+`TUILanguage` and a column to every row - the compiler refuses to build until
+all of them are filled in, so a missing translation cannot ship.
+
+Technical text is not translated: error messages, exceptions and the SQLite
+diagnostics report are English and stay as resourcestrings next to the code
+that raises them.
+
+The chosen language is not remembered between runs yet - the application starts
+in Ukrainian every time. That waits for a settings store.
 
 ## SQLite
 
