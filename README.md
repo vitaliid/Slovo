@@ -12,7 +12,8 @@ good and fix what did not.
 ## Status
 
 **Skeleton only.** The repository currently contains an empty VCL application:
-a main window with a single `File → Exit` menu. No reader, no search, no content
+a main window with a `File → Exit` menu, a `Help → SQLite diagnostics` item, and
+the SQLite binding those diagnostics exercise. No reader, no search, no content
 modules yet. UI design has not started.
 
 Do not expect a working program if you build this today.
@@ -57,6 +58,38 @@ From the command line, after running the IDE's `rsvars.bat`:
 msbuild Slovo.dproj /p:Config=Release /p:Platform=Win64
 ```
 
-`Slovo.res` is regenerated during the build from settings in `Slovo.dproj`
-(icon, version info), so a build may leave it modified in the working tree. If
-the application icon ever looks wrong, delete `Slovo.res` and rebuild.
+`Slovo.res` is generated during the build from settings in `Slovo.dproj` — it is
+not kept in the repository. If the application icon ever looks wrong, delete
+`Slovo.res` and rebuild.
+
+## SQLite
+
+Storage and full-text search are built on SQLite with the FTS5 extension. The
+library lives in `lib/sqlite3/Win64/sqlite3.dll` (see
+[`lib/sqlite3/README.md`](lib/sqlite3/README.md) for version and build options)
+and is copied next to the freshly built EXE by a post-build event.
+
+It is bound at run time in `Infrastructure.SQLite3.Api` — `LoadLibraryEx` with a
+full, explicit path — rather than statically imported or reached through
+FireDAC. The reasons:
+
+- The search layer cancels a running query from another thread with
+  `sqlite3_interrupt()`, and uses the FTS5 auxiliary functions (`bm25`,
+  `snippet`, `highlight`) directly.
+- A missing DLL or one of the wrong bitness produces a readable message instead
+  of a Windows loader failure before any of our code runs.
+- Nothing is ever searched for in the current directory or along `PATH`, which
+  closes the DLL pre-loading hole.
+
+`Infrastructure.SQLite3.Database` is the thin wrapper everything else uses:
+connection, prepared statement, UTF-8 boundary, errors as exceptions.
+
+**Help → SQLite diagnostics** reports the loaded library path and version, the
+threading mode, and probes FTS5 and the `unicode61` tokenizer with a Cyrillic
+round-trip. Use it first whenever search behaves oddly on a new machine.
+
+This is the one exception to the "single self-contained EXE" goal above. If that
+goal wins later, only the loader in `Infrastructure.SQLite3.Api` changes: the
+engine can be linked statically instead (RAD Studio ships SQLite as an object
+file, and mORMot 2 ships one with FTS5), and the rest of the codebase does not
+notice.

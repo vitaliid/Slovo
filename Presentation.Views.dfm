@@ -23,5 +23,12 @@ object MainForm: TMainForm
         OnClick = miExitClick
       end
     end
+    object miHelp: TMenuItem
+      Caption = '&'#1044#1086#1074#1110#1076#1082#1072
+      object miSQLiteDiagnostics: TMenuItem
+        Caption = 'SQLite &diagnostics...'
+        OnClick = miSQLiteDiagnosticsClick
+      end
+    end
   end
 end

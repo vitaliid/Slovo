@@ -2,7 +2,9 @@ program Slovo;
 
 uses
   Vcl.Forms,
-  Presentation.Views in 'Presentation.Views.pas' {MainForm};
+  Presentation.Views in 'Presentation.Views.pas' {MainForm},
+  Infrastructure.SQLite3.Api in 'Infrastructure.SQLite3.Api.pas',
+  Infrastructure.SQLite3.Database in 'Infrastructure.SQLite3.Database.pas';
 
 {$R *.res}
 

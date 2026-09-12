@@ -36,6 +36,9 @@
         <Icon_MainIcon>Slovo_Icon.ico</Icon_MainIcon>
         <DCC_ExeOutput>.\$(Platform)\$(Config)</DCC_ExeOutput>
         <DCC_DcuOutput>.\$(Platform)\$(Config)</DCC_DcuOutput>
+        <PostBuildEvent><![CDATA[rem Slovo loads sqlite3.dll from the directory of the executable,
+rem so the vendored library has to sit next to the freshly built EXE.
+copy /Y "$(PROJECTDIR)\lib\sqlite3\$(Platform)\sqlite3.dll" "$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll"]]></PostBuildEvent>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
         <BT_BuildType>Debug</BT_BuildType>
@@ -47,6 +50,8 @@
         <DCCReference Include="Presentation.Views.pas">
             <Form>MainForm</Form>
         </DCCReference>
+        <DCCReference Include="Infrastructure.SQLite3.Api.pas"/>
+        <DCCReference Include="Infrastructure.SQLite3.Database.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
@@ -76,6 +81,18 @@
                 <DeployFile LocalName="Slovo.exe" Configuration="Debug" Class="ProjectOutput">
                     <Platform Name="Win64">
                         <RemoteName>Slovo.exe</RemoteName>
+                        <Overwrite>true</Overwrite>
+                    </Platform>
+                </DeployFile>
+                <DeployFile LocalName="lib\sqlite3\Win64\sqlite3.dll" Configuration="Debug" Class="DependencyModule">
+                    <Platform Name="Win64">
+                        <RemoteName>sqlite3.dll</RemoteName>
+                        <Overwrite>true</Overwrite>
+                    </Platform>
+                </DeployFile>
+                <DeployFile LocalName="lib\sqlite3\Win64\sqlite3.dll" Configuration="Release" Class="DependencyModule">
+                    <Platform Name="Win64">
+                        <RemoteName>sqlite3.dll</RemoteName>
                         <Overwrite>true</Overwrite>
                     </Platform>
                 </DeployFile>
