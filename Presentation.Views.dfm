@@ -24,6 +24,33 @@ object MainForm: TMainForm
         OnClick = miExitClick
       end
     end
+    object miView: TMenuItem
+      Caption = '&View'
+      object miLanguage: TMenuItem
+        Caption = '&Language'
+        object miLanguageUkrainian: TMenuItem
+          Tag = 0
+          Caption = 'Ukrainian'
+          GroupIndex = 1
+          RadioItem = True
+          OnClick = miLanguageItemClick
+        end
+        object miLanguageRussian: TMenuItem
+          Tag = 1
+          Caption = 'Russian'
+          GroupIndex = 1
+          RadioItem = True
+          OnClick = miLanguageItemClick
+        end
+        object miLanguageEnglish: TMenuItem
+          Tag = 2
+          Caption = 'English'
+          GroupIndex = 1
+          RadioItem = True
+          OnClick = miLanguageItemClick
+        end
+      end
+    end
     object miHelp: TMenuItem
       Caption = '&Help'
       object miSQLiteDiagnostics: TMenuItem
