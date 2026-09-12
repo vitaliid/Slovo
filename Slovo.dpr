@@ -4,6 +4,7 @@ uses
   Winapi.Windows,
   System.SysUtils,
   Vcl.Forms,
+  Presentation.Strings in 'Presentation.Strings.pas',
   Presentation.Views in 'Presentation.Views.pas' {MainForm},
   Infrastructure.SQLite3.Api in 'Infrastructure.SQLite3.Api.pas',
   Infrastructure.SQLite3.Database in 'Infrastructure.SQLite3.Database.pas';

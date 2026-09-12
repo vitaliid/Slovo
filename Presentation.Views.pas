@@ -1,4 +1,4 @@
-﻿unit Presentation.Views;
+unit Presentation.Views;
 
 interface
 
@@ -12,10 +12,11 @@ type
     miExit: TMenuItem;
     miHelp: TMenuItem;
     miSQLiteDiagnostics: TMenuItem;
+    procedure FormCreate(Sender: TObject);
     procedure miExitClick(Sender: TObject);
     procedure miSQLiteDiagnosticsClick(Sender: TObject);
   private
-    { Private declarations }
+    procedure ApplyStrings;
   public
     { Public declarations }
   end;
@@ -28,12 +29,27 @@ implementation
 uses
   System.UITypes,
   Vcl.Dialogs,
+  Presentation.Strings,
   Infrastructure.SQLite3.Database;
 
 {$R *.dfm}
 
-resourcestring
-  SSQLiteDiagnosticsCaption = 'SQLite diagnostics';
+procedure TMainForm.FormCreate(Sender: TObject);
+begin
+  ApplyStrings;
+end;
+
+{ The captions stored in the .dfm are English placeholders for the designer's
+  benefit only; the real interface text comes from Presentation.Strings. Every
+  control that shows text to the user must be listed here - a control missing
+  from this method keeps its placeholder and ships untranslated. }
+procedure TMainForm.ApplyStrings;
+begin
+  miFile.Caption := SMenuFile;
+  miExit.Caption := SMenuFileExit;
+  miHelp.Caption := SMenuHelp;
+  miSQLiteDiagnostics.Caption := SMenuHelpSQLiteDiagnostics;
+end;
 
 procedure TMainForm.miExitClick(Sender: TObject);
 begin

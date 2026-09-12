@@ -47,6 +47,7 @@ copy /Y "$(PROJECTDIR)\lib\sqlite3\$(Platform)\sqlite3.dll" "$(PROJECTDIR)\$(Pla
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
+        <DCCReference Include="Presentation.Strings.pas"/>
         <DCCReference Include="Presentation.Views.pas">
             <Form>MainForm</Form>
         </DCCReference>

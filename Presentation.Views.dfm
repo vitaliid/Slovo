@@ -12,19 +12,20 @@ object MainForm: TMainForm
   Font.Style = []
   Menu = mmMain
   Position = poScreenCenter
+  OnCreate = FormCreate
   TextHeight = 15
   object mmMain: TMainMenu
     Left = 32
     Top = 32
     object miFile: TMenuItem
-      Caption = '&'#1060#1072#1081#1083
+      Caption = '&File'
       object miExit: TMenuItem
-        Caption = '&'#1042#1080#1093#1110#1076
+        Caption = 'E&xit'
         OnClick = miExitClick
       end
     end
     object miHelp: TMenuItem
-      Caption = '&'#1044#1086#1074#1110#1076#1082#1072
+      Caption = '&Help'
       object miSQLiteDiagnostics: TMenuItem
         Caption = 'SQLite &diagnostics...'
         OnClick = miSQLiteDiagnosticsClick
