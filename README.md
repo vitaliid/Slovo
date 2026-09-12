@@ -58,9 +58,9 @@ From the command line, after running the IDE's `rsvars.bat`:
 msbuild Slovo.dproj /p:Config=Release /p:Platform=Win64
 ```
 
-`Slovo.res` is generated during the build from settings in `Slovo.dproj` — it is
-not kept in the repository. If the application icon ever looks wrong, delete
-`Slovo.res` and rebuild.
+`Slovo.res` is regenerated during the build from settings in `Slovo.dproj`
+(icon, version info), so a build may leave it modified in the working tree. If
+the application icon ever looks wrong, delete `Slovo.res` and rebuild.
 
 ## SQLite
 
