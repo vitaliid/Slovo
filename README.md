@@ -66,14 +66,26 @@ the application icon ever looks wrong, delete `Slovo.res` and rebuild.
 
 The interface ships in Ukrainian (default), Russian and English, switched from
 **View → Language** while the program is running - no restart, no separate
-build, no extra files.
+build.
 
-Every translated string lives in `Presentation.Strings` as one row of a
-`[string, language]` table; the `.dfm` files hold English placeholders that
-exist only for the form designer and are overwritten at run time by
-`TMainForm.ApplyStrings`. Adding a language means adding a value to
-`TUILanguage` and a column to every row - the compiler refuses to build until
-all of them are filled in, so a missing translation cannot ship.
+Every translated string lives in `lang\<code>.lang`: a plain UTF-8 file of
+`key = value` lines, one file per language, read at run time from next to the
+EXE (a post-build event copies them there from `lang\` in the repository).
+Correcting wording therefore needs a text editor, not Delphi, and switching
+away from a language and back re-reads its file.
+
+A key that is missing from the current file is **not** an error: the key itself
+is shown in the interface and the miss is written once to the debug log. A
+half-translated interface stays usable and says exactly what is missing.
+
+Adding a language means copying `lang\en.lang`, translating the values, and
+adding its code to `UILanguageCodes` in `Presentation.Strings` together with a
+menu item for it.
+
+The `.dfm` files hold English placeholders that exist only for the form
+designer and are overwritten at run time by `TMainForm.ApplyStrings`. Adding a
+caption means adding a key to the three `.lang` files and a line to that
+method - never a translated literal in a `.dfm`.
 
 Technical text is not translated: error messages, exceptions and the SQLite
 diagnostics report are English and stay as resourcestrings next to the code
