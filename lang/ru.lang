@@ -1,0 +1,19 @@
+﻿# Slovo - Russian interface text.
+#
+# UTF-8. One "key = value" per line, split at the FIRST '=' sign.
+# Lines starting with '#' are comments.
+# Escapes: \n newline, \t tab, \\ backslash.
+# Placeholders: %s text, %d number, %0:s %1:d when the word order differs.
+# '&' before a letter in a menu item marks its accelerator key.
+#
+# A key that is missing here is displayed as the key itself and reported in the
+# debug log, so nothing breaks - the gap is simply visible.
+
+menu.file = &Файл
+menu.file.exit = &Выход
+menu.view = &Вид
+menu.view.language = &Язык
+menu.help = &Справка
+menu.help.sqliteDiagnostics = Д&иагностика SQLite...
+
+dialog.sqliteDiagnostics.title = Диагностика SQLite

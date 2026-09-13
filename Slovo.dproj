@@ -38,7 +38,10 @@
         <DCC_DcuOutput>.\$(Platform)\$(Config)</DCC_DcuOutput>
         <PostBuildEvent><![CDATA[rem Slovo loads sqlite3.dll from the directory of the executable,
 rem so the vendored library has to sit next to the freshly built EXE.
-copy /Y "$(PROJECTDIR)\lib\sqlite3\$(Platform)\sqlite3.dll" "$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll"]]></PostBuildEvent>
+copy /Y "$(PROJECTDIR)\lib\sqlite3\$(Platform)\sqlite3.dll" "$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll"
+rem Interface text is read from lang\*.lang next to the EXE at run time,
+rem so the translation files have to travel with it as well.
+xcopy /Y /I /Q "$(PROJECTDIR)\lang\*.lang" "$(PROJECTDIR)\$(Platform)\$(Config)\lang\"]]></PostBuildEvent>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
         <BT_BuildType>Debug</BT_BuildType>

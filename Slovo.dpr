@@ -3,6 +3,7 @@ program Slovo;
 uses
   Winapi.Windows,
   System.SysUtils,
+  System.IOUtils,
   Vcl.Forms,
   Presentation.Strings in 'Presentation.Strings.pas',
   Presentation.Views in 'Presentation.Views.pas' {MainForm},
@@ -36,10 +37,30 @@ begin
   end;
 end;
 
+{ Interface text comes from lang\*.lang next to the EXE (a post-build event
+  copies them there from the repository). Missing files or keys are never fatal:
+  the interface falls back to showing the keys, and every miss is reported.
+
+  Until there is an ILogger, reports go to OutputDebugString - visible in the
+  IDE's Event Log while debugging and harmless in a release run. Replacing this
+  closure with a logger call is the only change needed later. }
+procedure InitInterfaceText;
+begin
+  InitLocalization(
+    TPath.Combine(TPath.GetDirectoryName(ParamStr(0)), 'lang'),
+    DefaultUILanguage,
+    procedure(const AMessage: string)
+    begin
+      OutputDebugString(PChar(AMessage));
+    end);
+end;
+
 begin
   Application.Initialize;
   Application.MainFormOnTaskbar := True;
   Application.Title := 'Slovo';
+
+  InitInterfaceText;
 
   if TryLoadSQLite then
   begin
