@@ -38,6 +38,8 @@ type
     Slovo.dpr passes OutputDebugString for now; this becomes ILogger once
     there is one. }
   TLocalizerLogProc = reference to procedure(const AMessage: string);
+  { Note: messages below use [brackets] rather than "quotes" - the IDE's Event
+    Log truncates an OutputDebugString message at the first double quote. }
 
 const
   { The languages offered in View -> Language. The index of a code is the Tag
@@ -151,7 +153,7 @@ begin
     except
       on E: Exception do
       begin
-        Log(Format('Localization: cannot read "%s": %s', [AFileName, E.Message]));
+        Log(Format('Localization: cannot read [%s]: %s', [AFileName, E.Message]));
         Exit;
       end;
     end;
@@ -188,11 +190,11 @@ begin
   if TFile.Exists(LFileName) then
   begin
     LoadLanguageFile(LFileName);
-    Log(Format('Localization: "%s", %d keys', [GLanguage, GStrings.Count]));
+    Log(Format('Localization: [%s], %d keys', [GLanguage, GStrings.Count]));
   end
   else
     { No file: the interface shows keys. Ugly, but it runs and it says why. }
-    Log(Format('Localization: file not found: "%s"', [LFileName]));
+    Log(Format('Localization: file not found: [%s]', [LFileName]));
 end;
 
 procedure InitLocalization(const AFolder: string; const ALanguageCode: string;
@@ -218,7 +220,7 @@ begin
   if not GMissing.ContainsKey(AKey) then
   begin
     GMissing.Add(AKey, 0);
-    Log(Format('Localization: missing key "%s" (%s)', [AKey, GLanguage]));
+    Log(Format('Localization: missing key [%s] (%s)', [AKey, GLanguage]));
   end;
 
   Result := AKey;
@@ -234,7 +236,7 @@ begin
   except
     on E: Exception do
     begin
-      Log(Format('Localization: bad format pattern for key "%s": %s',
+      Log(Format('Localization: bad format pattern for key [%s]: %s',
         [AKey, E.Message]));
       Result := LPattern;
     end;
