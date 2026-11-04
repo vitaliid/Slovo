@@ -602,25 +602,30 @@ end;
 ## Частина D. Структура Shell і залежності
 
 ```
-Shell/
-  Program.dpr                       -- Application.CreateForm + Root.BindMainForm (C-14)
+<корінь репозиторію>/               -- Shell: проєкт Slovo.dproj
+  Slovo.dpr                         -- Application.CreateForm + Root.BindMainForm (C-14); фінал: Unbind → FreeAndNil(MainForm) → Root.Free
   App.CompositionRoot.pas           -- дві фази (C-22): Logger, Settings, мова, шрифт → TReaderTheme;
-                                    --   далі LibraryDatabase, ILibrary, каталог, SearchIndex → ViewModel
+                                    --   далі sqlite3.dll + FTS5, LibraryDatabase, snowball, каталог, SearchIndex → ViewModel
+  Core/                             -- Core.Domain, Core.Catalog, Core.Contracts, Core.Events (View 1)
+  Infrastructure/                   -- SQLite3.Api/Database, Infra.SQLite.LibraryDatabase/LibraryReader,
+                                    --   Infra.Search.Fts5SearchIndex, Infra.Logging.FileLogger, Infra.Settings.IniSettings (E-06)
   Presentation/
     Presentation.MainViewModel.pas  -- C.1; uses лише Core.*
     Presentation.Views.pas          -- IMainView
-    Presentation.Localization.pas   -- ILocalizer, L(), L(key, args) (R3-25, R6)
+    Presentation.Localization.pas   -- ILocalizer, TFileLocalizer; InitLocalization, Localizer, L(key), L(key, args),
+                                    --   LanguageName; UILanguageCodes (R3-25, R6). Лог — лише проблеми
     Presentation.Theme.pas          -- кольори, розміри — константи A.1 (E-14); TReaderTheme (C.4)
-    Presentation.ChapterRtf.pas     -- TChapterRtfBuilder (C.4); uses System.*, Core.Domain — без Vcl
-    Presentation.Fonts.pas          -- AddFontResourceEx (E-04)
+    Presentation.ChapterRtf.pas     -- TChapterRtfBuilder (C.4); uses System.*, Core.Domain — без Vcl (наступний крок)
+    Presentation.Fonts.pas          -- TPrivateFonts: AddFontResourceEx FR_PRIVATE, запасний Georgia (E-04)
   Vcl/
-    MainForm.pas/.dfm               -- TMainForm = class(TForm, IMainView); панелі, VST, RichEdit, хедер
-    ErrorBannerFrame.pas/.dfm       -- TErrorBannerFrame (C-10, E-15)
-Infrastructure/
-    Infra.Settings.IniSettings.pas  -- ISettings над TMemIniFile (E-06)
+    Shell.MainForm.pas/.dfm         -- TMainForm = class(TForm, IMainView); панелі, VST, RichEdit, хедер
+                                    --   (зараз — тимчасова оболонка для перевірки старту; Bind/Unbind остаточні)
+    Shell.ErrorBannerFrame.pas/.dfm -- TErrorBannerFrame (C-10, E-15) (наступний крок)
+  lang/                             -- uk.lang, ru.lang, en.lang (C.3); post-build копіює до EXE
+  Tests/                            -- Slovo.Tests.dproj (DUnitX)
 ```
 
-Залежності: `Vcl\*` → `Presentation.*` → `Core.*`; `Presentation.*` не бачить `Vcl.*` (`ChapterRtf` — чистий текст; тестується без вікна). VST з'являється лише у `Vcl\MainForm`. Композиційний корінь створює чотири порти — `ILogger`, `ISettings`, `ILibrary`, `ISearchIndex` — плюс `TLibraryDatabase`, `TLibraryCatalog`, `TPrivateFonts`/`TReaderTheme` і локалізатор; порядок і дві фази — View 3, A.2.
+Залежності: `Vcl\*` → `Presentation.*` → `Core.*`; `Presentation.*` не бачить `Vcl.*` (`ChapterRtf` — чистий текст; тестується без вікна). VST з'являється лише у `Vcl\Shell.MainForm`. Композиційний корінь створює чотири порти — `ILogger`, `ISettings`, `ILibrary`, `ISearchIndex` — плюс `TLibraryDatabase`, `TLibraryCatalog`, `TPrivateFonts`/`TReaderTheme` і локалізатор; порядок і дві фази — View 3, A.2.
 
 Файли поставки (оновлює View 3, B.1): `fonts\` — **3 файли** EB Garamond (Regular, Italic, Bold) + `OFL.txt` з copyright-рядком шрифту (R6); `data\settings.ini` — з першого запуску.
 

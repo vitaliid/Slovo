@@ -46,12 +46,26 @@ xcopy /Y /I /Q "$(PROJECTDIR)\lang\*.lang" "$(PROJECTDIR)\$(Platform)\$(Config)\
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
-        <DCCReference Include="Presentation\Presentation.Strings.pas"/>
-        <DCCReference Include="Presentation\Presentation.Views.pas">
-            <Form>MainForm</Form>
-        </DCCReference>
+        <DCCReference Include="Core\Core.Domain.pas"/>
+        <DCCReference Include="Core\Core.Catalog.pas"/>
+        <DCCReference Include="Core\Core.Contracts.pas"/>
+        <DCCReference Include="Core\Core.Events.pas"/>
         <DCCReference Include="Infrastructure\Infrastructure.SQLite3.Api.pas"/>
         <DCCReference Include="Infrastructure\Infrastructure.SQLite3.Database.pas"/>
+        <DCCReference Include="Infrastructure\Infra.SQLite.LibraryDatabase.pas"/>
+        <DCCReference Include="Infrastructure\Infra.SQLite.LibraryReader.pas"/>
+        <DCCReference Include="Infrastructure\Infra.Search.Fts5SearchIndex.pas"/>
+        <DCCReference Include="Infrastructure\Infra.Logging.FileLogger.pas"/>
+        <DCCReference Include="Infrastructure\Infra.Settings.IniSettings.pas"/>
+        <DCCReference Include="Presentation\Presentation.Localization.pas"/>
+        <DCCReference Include="Presentation\Presentation.Theme.pas"/>
+        <DCCReference Include="Presentation\Presentation.Fonts.pas"/>
+        <DCCReference Include="Presentation\Presentation.MainViewModel.pas"/>
+        <DCCReference Include="Presentation\Presentation.Views.pas"/>
+        <DCCReference Include="Vcl\Shell.MainForm.pas">
+            <Form>MainForm</Form>
+        </DCCReference>
+        <DCCReference Include="App.CompositionRoot.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

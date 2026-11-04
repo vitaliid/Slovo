@@ -8,6 +8,9 @@
 #
 # A key that is missing here is displayed as the key itself and reported in the
 # debug log, so nothing breaks - the gap is simply visible.
+# Key rule: <zone>.<element>[.<state>] (Slovo_04 C.3).
+
+app.title = Slovo
 
 menu.file = &Файл
 menu.file.exit = &Вихід
@@ -17,3 +20,71 @@ menu.help = &Довідка
 menu.help.sqliteDiagnostics = Д&іагностика SQLite...
 
 dialog.sqliteDiagnostics.title = Діагностика SQLite
+
+header.library = Бібліотека
+header.smaller = Менший текст
+header.bigger = Більший текст
+header.silence = Тиша
+header.silence.exit = Вийти з тиші
+header.silence.hint = Сховати все, крім тексту (Esc повертає)
+header.search = Пошук ( / )
+
+library.title = Бібліотека
+library.checkHint = Шукати в цій книзі
+library.chapters = %d розд.
+library.bibleChapters = %d гл.
+library.bibleBooks = %d кн.
+
+category.spiritOfProphecy = Праці Е. Ґ. Вайт
+category.history = Історія
+category.spiritualLife = Духовне життя
+category.prophecyStudy = Дослідження пророцтв
+category.bible = Біблія
+
+shelf.booksCount = Книг у бібліотеці: %d
+shelf.reading = читаю · розділ %d
+toc.title = Зміст
+toc.reading = читаю
+
+read.chapter = Розділ %d
+read.hitNav = «%s» · %d з %d у розділі
+read.prevHit = Попередній збіг
+read.nextHit = Наступний збіг
+read.prevChapter = Попередній розділ
+read.nextChapter = Наступний розділ
+
+search.title = Пошук
+search.placeholder = слово або фраза
+search.where = Де шукати
+search.scope.all = Уся бібліотека
+search.scope.checked = Відмічені книги · %d
+search.exactPhrase = Точна фраза
+search.wordForms = Враховувати форми слова
+search.wordForms.hint = Знаходить інші форми слова: «жертва» → «жертви», «жертвою»
+search.enterWord = введіть слово
+search.checkSome = відмітьте хоча б одну книгу
+search.busy = Шукаю…
+search.hits = Збіги: %d
+search.truncated = Показано перші %d
+search.section.books = Книги
+search.section.bible = Біблія
+
+copy.plain = Копіювати
+copy.withReference = Копіювати з посиланням
+
+error.notFound = Главу не знайдено
+error.moduleCorrupted = Файл бібліотеки пошкоджено
+error.ioFailure = Диск або файл недоступні
+error.invalidQuery = Запит не вдалося розібрати — спробуйте без спецсимволів
+error.unsupportedModule = Ця операція не підходить для вибраної книги
+error.unsupportedSchema = Бібліотеку створено новішою версією програми
+error.unexpected = Щось пішло не так — подробиці в data\\slovo.log
+
+# Phase 0 of startup (C-22): MessageBox before the window exists, not the banner.
+startup.noSqlite = Не знайдено sqlite3.dll. Розпакуйте архів програми повністю в окрему папку й запустіть Slovo.exe звідти.
+startup.wrongSqlite = Файл sqlite3.dll не підходить до цієї версії Slovo. Розпакуйте архів програми повністю заново.
+startup.noLibrary = Не знайдено бібліотеку library.db. Розпакуйте архів програми повністю в окрему папку й запустіть Slovo.exe звідти.
+startup.libraryCorrupted = Файл бібліотеки пошкоджено. Замініть library.db.
+startup.unsupportedSchema = Бібліотеку створено новішою версією програми. Оновіть Slovo.
+startup.readOnlyFolder = Папку програми захищено від запису — налаштування й лог не зберігатимуться
+startup.unexpected = Не вдалося запустити програму. Подробиці — у data\\slovo.log

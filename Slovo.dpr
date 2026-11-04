@@ -1,72 +1,66 @@
-program Slovo;
+﻿program Slovo;
+
+{ Program entry (Slovo_03 A.2). Phase 0 - OpenLibrary - checks everything the
+  program depends on before any window exists; phase 1 - BindMainForm - fills
+  the standard Application.CreateForm form through IMainView (C-14, C-22). }
 
 uses
-  Winapi.Windows,
   System.SysUtils,
-  System.IOUtils,
   Vcl.Forms,
-  Presentation.Strings in 'Presentation\Presentation.Strings.pas',
-  Presentation.Views in 'Presentation\Presentation.Views.pas' {MainForm},
+  Core.Domain in 'Core\Core.Domain.pas',
+  Core.Catalog in 'Core\Core.Catalog.pas',
+  Core.Contracts in 'Core\Core.Contracts.pas',
+  Core.Events in 'Core\Core.Events.pas',
   Infrastructure.SQLite3.Api in 'Infrastructure\Infrastructure.SQLite3.Api.pas',
-  Infrastructure.SQLite3.Database in 'Infrastructure\Infrastructure.SQLite3.Database.pas';
+  Infrastructure.SQLite3.Database in 'Infrastructure\Infrastructure.SQLite3.Database.pas',
+  Infra.SQLite.LibraryDatabase in 'Infrastructure\Infra.SQLite.LibraryDatabase.pas',
+  Infra.SQLite.LibraryReader in 'Infrastructure\Infra.SQLite.LibraryReader.pas',
+  Infra.Search.Fts5SearchIndex in 'Infrastructure\Infra.Search.Fts5SearchIndex.pas',
+  Infra.Logging.FileLogger in 'Infrastructure\Infra.Logging.FileLogger.pas',
+  Infra.Settings.IniSettings in 'Infrastructure\Infra.Settings.IniSettings.pas',
+  Presentation.Localization in 'Presentation\Presentation.Localization.pas',
+  Presentation.Theme in 'Presentation\Presentation.Theme.pas',
+  Presentation.Fonts in 'Presentation\Presentation.Fonts.pas',
+  Presentation.MainViewModel in 'Presentation\Presentation.MainViewModel.pas',
+  Presentation.Views in 'Presentation\Presentation.Views.pas',
+  Shell.MainForm in 'Vcl\Shell.MainForm.pas' {MainForm},
+  App.CompositionRoot in 'App.CompositionRoot.pas';
 
 {$R *.res}
 
-resourcestring
-  SStartupFailureCaption = 'Slovo - startup failed';
-  SStartupFailureHint = sLineBreak + sLineBreak +
-    'Check that sqlite3.dll sits next to Slovo.exe.';
-
-{ Loads SQLite before the main window is created. Without the library the
-  application can neither open a book nor search, so failing here - loudly and
-  in one readable sentence - beats letting the window appear and die on the
-  first query. The lazy load inside TSQLiteDatabase.Create stays in place; it
-  simply never has anything left to do. }
-function TryLoadSQLite: Boolean;
-begin
-  Result := True;
-  try
-    LoadSQLite3;
-  except
-    on E: Exception do
-    begin
-      Result := False;
-      Application.MessageBox(PChar(E.Message + SStartupFailureHint),
-        PChar(SStartupFailureCaption), MB_OK or MB_ICONERROR);
-    end;
-  end;
-end;
-
-{ Interface text comes from lang\*.lang next to the EXE (a post-build event
-  copies them there from the repository). Missing files or keys are never fatal:
-  the interface falls back to showing the keys, and every miss is reported.
-
-  Until there is an ILogger, reports go to OutputDebugString - visible in the
-  IDE's Event Log while debugging and harmless in a release run. Replacing this
-  closure with a logger call is the only change needed later. }
-procedure InitInterfaceText;
-begin
-  InitLocalization(
-    TPath.Combine(TPath.GetDirectoryName(ParamStr(0)), 'lang'),
-    DefaultUILanguage,
-    procedure(const AMessage: string)
-    begin
-      OutputDebugString(PChar(AMessage));
-    end);
-end;
+var
+  Root: TCompositionRoot;
 
 begin
   Application.Initialize;
   Application.MainFormOnTaskbar := True;
-  Application.Title := 'Slovo';
 
-  InitInterfaceText;
-
-  if TryLoadSQLite then
-  begin
-    Application.CreateForm(TMainForm, MainForm);
-    Application.Run;
-  end
-  else
-    ExitCode := 1;
+  Root := TCompositionRoot.Create;          // nothing fatal here (C-22)
+  try
+    try
+      if Root.OpenLibrary then              // phase 0; False = the message was shown
+      begin
+        Application.Title := L('app.title');
+        Application.CreateForm(TMainForm, MainForm);
+        Root.BindMainForm(MainForm);        // phase 1: the window appears already filled
+        Application.Run;
+      end
+      else
+        ExitCode := 1;
+    except
+      on E: Exception do
+      begin
+        Root.ReportFatal(E);
+        ExitCode := 1;
+      end;
+    end;
+  finally
+    // ORDER MATTERS. Application owns the form, which would otherwise die during
+    // VCL finalization - AFTER the ViewModel it is subscribed to. So: unbind,
+    // free the form explicitly, then the root. CreateForm may not have run.
+    if Assigned(MainForm) then
+      Root.UnbindMainForm(MainForm);
+    FreeAndNil(MainForm);
+    Root.Free;
+  end;
 end.

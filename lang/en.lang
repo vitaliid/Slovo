@@ -8,6 +8,9 @@
 #
 # A key that is missing here is displayed as the key itself and reported in the
 # debug log, so nothing breaks - the gap is simply visible.
+# Key rule: <zone>.<element>[.<state>] (Slovo_04 C.3).
+
+app.title = Slovo
 
 menu.file = &File
 menu.file.exit = E&xit
@@ -17,3 +20,71 @@ menu.help = &Help
 menu.help.sqliteDiagnostics = SQLite &diagnostics...
 
 dialog.sqliteDiagnostics.title = SQLite diagnostics
+
+header.library = Library
+header.smaller = Smaller text
+header.bigger = Larger text
+header.silence = Silence
+header.silence.exit = Leave silence
+header.silence.hint = Hide everything but the text (Esc brings it back)
+header.search = Search ( / )
+
+library.title = Library
+library.checkHint = Search in this book
+library.chapters = %d ch.
+library.bibleChapters = %d ch.
+library.bibleBooks = %d books
+
+category.spiritOfProphecy = Writings of E. G. White
+category.history = History
+category.spiritualLife = Spiritual life
+category.prophecyStudy = Prophecy study
+category.bible = Bible
+
+shelf.booksCount = Books in the library: %d
+shelf.reading = reading · chapter %d
+toc.title = Contents
+toc.reading = reading
+
+read.chapter = Chapter %d
+read.hitNav = "%s" · %d of %d in the chapter
+read.prevHit = Previous match
+read.nextHit = Next match
+read.prevChapter = Previous chapter
+read.nextChapter = Next chapter
+
+search.title = Search
+search.placeholder = word or phrase
+search.where = Where to search
+search.scope.all = Whole library
+search.scope.checked = Checked books · %d
+search.exactPhrase = Exact phrase
+search.wordForms = Match word forms
+search.wordForms.hint = Finds other forms of a word: "sacrifice" → "sacrifices", "sacrificed"
+search.enterWord = enter a word
+search.checkSome = check at least one book
+search.busy = Searching…
+search.hits = Matches: %d
+search.truncated = Showing the first %d
+search.section.books = Books
+search.section.bible = Bible
+
+copy.plain = Copy
+copy.withReference = Copy with reference
+
+error.notFound = Chapter not found
+error.moduleCorrupted = The library file is damaged
+error.ioFailure = The disk or file is not available
+error.invalidQuery = Could not read the query — try without special characters
+error.unsupportedModule = This operation does not apply to the selected book
+error.unsupportedSchema = The library was made by a newer version of the program
+error.unexpected = Something went wrong — details in data\\slovo.log
+
+# Phase 0 of startup (C-22): MessageBox before the window exists, not the banner.
+startup.noSqlite = sqlite3.dll was not found. Extract the whole program archive into a separate folder and run Slovo.exe from there.
+startup.wrongSqlite = This sqlite3.dll does not fit this version of Slovo. Extract the whole program archive again.
+startup.noLibrary = The library library.db was not found. Extract the whole program archive into a separate folder and run Slovo.exe from there.
+startup.libraryCorrupted = The library file is damaged. Replace library.db.
+startup.unsupportedSchema = The library was made by a newer version of the program. Update Slovo.
+startup.readOnlyFolder = The program folder is write-protected — settings and the log will not be kept
+startup.unexpected = The program could not start. Details are in data\\slovo.log
