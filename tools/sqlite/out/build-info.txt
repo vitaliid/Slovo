@@ -1,0 +1,16 @@
+Slovo sqlite3.dll build info
+built:        2026-11-04T01:40:12Z
+compiler:     x86_64-w64-mingw32-gcc 13-win32 (x86_64-w64-mingw32)
+SQLite:       3.54.1
+Snowball:     libstemmer_c 3.2.0
+fts5-snowball: vendor/fts5-snowball/fts5stemmer.c (upstream, unchanged)
+options:      SQLITE_ENABLE_FTS5, SQLITE_EXTRA_INIT=slovo_extra_init
+imports:      KERNEL32.dll msvcrt.dll
+
+SHA-256:
+1da92e37ea1d65013260ccc629ff02d9fd7ad8648d4b014d530f0ec07b3d42cd  sqlite3.dll
+44772640f4cd4b118616e2e6e0c21e7b7eaffd5671337b05d953ac80ae38a3d7  sqlite3.exe
+0c657666d819f261cc4007526ad57e1669de9949df7a8ea847aa284a2bf0ee52  sqlite/sqlite3.c
+00c5cba13701f8c02771f147190aca4faacdf6f6b0def48246fc6c2af656e9ee  sqlite/shell.c
+d122d1aa5add002c24b6087a95462f1bdf3965135b36b905a12fc64fbb7552d6  fts5-snowball/fts5stemmer.c
+ade39d0cf68dfbe4aa3b32a95e74eebc6d126050e1ab346992c067e4df55ddc6  libstemmer_c-3.2.0.tar.gz

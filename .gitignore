@@ -82,3 +82,7 @@ __recovery/
 
 # Boss dependency manager vendor folder https://github.com/HashLoad/boss
 modules/
+
+# tools/sqlite: the custom sqlite3.dll and its console ship with the app (B-31)
+!tools/sqlite/out/sqlite3.dll
+!tools/sqlite/out/sqlite3.exe
