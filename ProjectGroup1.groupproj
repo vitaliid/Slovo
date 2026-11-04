@@ -1,0 +1,60 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{9DBD87DA-E5DB-4B99-830D-5D238F5ADDEE}</ProjectGuid>
+    </PropertyGroup>
+    <ItemGroup>
+        <Projects Include="Slovo.dproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="Tests\Slovo.Tests.dproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="tools\sqlite\delphi\SnowballCheck.dproj">
+            <Dependencies/>
+        </Projects>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Default.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Default.Personality/>
+        </BorlandProject>
+    </ProjectExtensions>
+    <Target Name="Slovo">
+        <MSBuild Projects="Slovo.dproj"/>
+    </Target>
+    <Target Name="Slovo:Clean">
+        <MSBuild Projects="Slovo.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="Slovo:Make">
+        <MSBuild Projects="Slovo.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Slovo_Tests">
+        <MSBuild Projects="Tests\Slovo.Tests.dproj"/>
+    </Target>
+    <Target Name="Slovo_Tests:Clean">
+        <MSBuild Projects="Tests\Slovo.Tests.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="Slovo_Tests:Make">
+        <MSBuild Projects="Tests\Slovo.Tests.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="SnowballCheck">
+        <MSBuild Projects="tools\sqlite\delphi\SnowballCheck.dproj"/>
+    </Target>
+    <Target Name="SnowballCheck:Clean">
+        <MSBuild Projects="tools\sqlite\delphi\SnowballCheck.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="SnowballCheck:Make">
+        <MSBuild Projects="tools\sqlite\delphi\SnowballCheck.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Build">
+        <CallTarget Targets="Slovo;Slovo_Tests;SnowballCheck"/>
+    </Target>
+    <Target Name="Clean">
+        <CallTarget Targets="Slovo:Clean;Slovo_Tests:Clean;SnowballCheck:Clean"/>
+    </Target>
+    <Target Name="Make">
+        <CallTarget Targets="Slovo:Make;Slovo_Tests:Make;SnowballCheck:Make"/>
+    </Target>
+    <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
+</Project>
