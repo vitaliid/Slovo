@@ -5,10 +5,10 @@ uses
   System.SysUtils,
   System.IOUtils,
   Vcl.Forms,
-  Presentation.Strings in 'Presentation.Strings.pas',
-  Presentation.Views in 'Presentation.Views.pas' {MainForm},
-  Infrastructure.SQLite3.Api in 'Infrastructure.SQLite3.Api.pas',
-  Infrastructure.SQLite3.Database in 'Infrastructure.SQLite3.Database.pas';
+  Presentation.Strings in 'Presentation\Presentation.Strings.pas',
+  Presentation.Views in 'Presentation\Presentation.Views.pas' {MainForm},
+  Infrastructure.SQLite3.Api in 'Infrastructure\Infrastructure.SQLite3.Api.pas',
+  Infrastructure.SQLite3.Database in 'Infrastructure\Infrastructure.SQLite3.Database.pas';
 
 {$R *.res}
 
