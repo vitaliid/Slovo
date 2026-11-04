@@ -25,13 +25,16 @@ uses
   Infra.SQLite.LibraryDatabase in '..\Infrastructure\Infra.SQLite.LibraryDatabase.pas',
   Infra.SQLite.LibraryReader in '..\Infrastructure\Infra.SQLite.LibraryReader.pas',
   Infra.Search.Fts5SearchIndex in '..\Infrastructure\Infra.Search.Fts5SearchIndex.pas',
+  Infra.Logging.FileLogger in '..\Infrastructure\Infra.Logging.FileLogger.pas',
+  Infra.Settings.IniSettings in '..\Infrastructure\Infra.Settings.IniSettings.pas',
   Slovo.TestSupport in 'Slovo.TestSupport.pas',
   Core.Domain.Tests in 'Core.Domain.Tests.pas',
   Core.Catalog.Tests in 'Core.Catalog.Tests.pas',
   Core.Boundary.Tests in 'Core.Boundary.Tests.pas',
   Infra.LibraryDatabase.Tests in 'Infra.LibraryDatabase.Tests.pas',
   Infra.LibraryReader.Tests in 'Infra.LibraryReader.Tests.pas',
-  Infra.Fts5SearchIndex.Tests in 'Infra.Fts5SearchIndex.Tests.pas';
+  Infra.Fts5SearchIndex.Tests in 'Infra.Fts5SearchIndex.Tests.pas',
+  Infra.LoggerAndSettings.Tests in 'Infra.LoggerAndSettings.Tests.pas';
 
 var
   Runner: ITestRunner;

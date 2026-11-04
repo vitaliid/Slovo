@@ -74,6 +74,8 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <DCCReference Include="..\Infrastructure\Infra.SQLite.LibraryDatabase.pas"/>
         <DCCReference Include="..\Infrastructure\Infra.SQLite.LibraryReader.pas"/>
         <DCCReference Include="..\Infrastructure\Infra.Search.Fts5SearchIndex.pas"/>
+        <DCCReference Include="..\Infrastructure\Infra.Logging.FileLogger.pas"/>
+        <DCCReference Include="..\Infrastructure\Infra.Settings.IniSettings.pas"/>
         <DCCReference Include="Slovo.TestSupport.pas"/>
         <DCCReference Include="Core.Domain.Tests.pas"/>
         <DCCReference Include="Core.Catalog.Tests.pas"/>
@@ -81,6 +83,7 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <DCCReference Include="Infra.LibraryDatabase.Tests.pas"/>
         <DCCReference Include="Infra.LibraryReader.Tests.pas"/>
         <DCCReference Include="Infra.Fts5SearchIndex.Tests.pas"/>
+        <DCCReference Include="Infra.LoggerAndSettings.Tests.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
