@@ -36,11 +36,7 @@
         <Icon_MainIcon>Slovo_Icon.ico</Icon_MainIcon>
         <DCC_ExeOutput>.\$(Platform)\$(Config)</DCC_ExeOutput>
         <DCC_DcuOutput>.\$(Platform)\$(Config)</DCC_DcuOutput>
-        <PostBuildEvent><![CDATA[rem Slovo loads sqlite3.dll from the directory of the executable. It is our own
-rem build with the Snowball tokenizer (B-31), produced by tools\sqlite\build.sh.
-copy /Y "$(PROJECTDIR)\tools\sqlite\out\sqlite3.dll" "$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll"
-rem Interface text is read from lang\*.lang next to the EXE at run time,
-rem so the translation files have to travel with it as well.
+        <PostBuildEvent><![CDATA[copy /Y "$(PROJECTDIR)\tools\sqlite\out\sqlite3.dll" "$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll"
 xcopy /Y /I /Q "$(PROJECTDIR)\lang\*.lang" "$(PROJECTDIR)\$(Platform)\$(Config)\lang\"]]></PostBuildEvent>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">

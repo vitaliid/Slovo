@@ -24,12 +24,14 @@ uses
   Infrastructure.SQLite3.Database in '..\Infrastructure\Infrastructure.SQLite3.Database.pas',
   Infra.SQLite.LibraryDatabase in '..\Infrastructure\Infra.SQLite.LibraryDatabase.pas',
   Infra.SQLite.LibraryReader in '..\Infrastructure\Infra.SQLite.LibraryReader.pas',
+  Infra.Search.Fts5SearchIndex in '..\Infrastructure\Infra.Search.Fts5SearchIndex.pas',
   Slovo.TestSupport in 'Slovo.TestSupport.pas',
   Core.Domain.Tests in 'Core.Domain.Tests.pas',
   Core.Catalog.Tests in 'Core.Catalog.Tests.pas',
   Core.Boundary.Tests in 'Core.Boundary.Tests.pas',
   Infra.LibraryDatabase.Tests in 'Infra.LibraryDatabase.Tests.pas',
-  Infra.LibraryReader.Tests in 'Infra.LibraryReader.Tests.pas';
+  Infra.LibraryReader.Tests in 'Infra.LibraryReader.Tests.pas',
+  Infra.Fts5SearchIndex.Tests in 'Infra.Fts5SearchIndex.Tests.pas';
 
 var
   Runner: ITestRunner;

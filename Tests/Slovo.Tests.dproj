@@ -41,8 +41,7 @@
         <DCC_UnitSearchPath>$(DUnitX);$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <DCC_ExeOutput>.\$(Platform)\$(Config)</DCC_ExeOutput>
         <DCC_DcuOutput>.\$(Platform)\$(Config)</DCC_DcuOutput>
-        <PostBuildEvent><![CDATA[rem The custom sqlite3.dll with Snowball (B-31) is built into tools\sqlite\out.
-copy /Y "$(PROJECTDIR)\..\tools\sqlite\out\sqlite3.dll" "$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll"
+        <PostBuildEvent><![CDATA[copy /Y "$(PROJECTDIR)\..\tools\sqlite\out\sqlite3.dll" "$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll"
 $(PostBuildEvent)]]></PostBuildEvent>
         <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
     </PropertyGroup>
@@ -74,12 +73,14 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <DCCReference Include="..\Infrastructure\Infrastructure.SQLite3.Database.pas"/>
         <DCCReference Include="..\Infrastructure\Infra.SQLite.LibraryDatabase.pas"/>
         <DCCReference Include="..\Infrastructure\Infra.SQLite.LibraryReader.pas"/>
+        <DCCReference Include="..\Infrastructure\Infra.Search.Fts5SearchIndex.pas"/>
         <DCCReference Include="Slovo.TestSupport.pas"/>
         <DCCReference Include="Core.Domain.Tests.pas"/>
         <DCCReference Include="Core.Catalog.Tests.pas"/>
         <DCCReference Include="Core.Boundary.Tests.pas"/>
         <DCCReference Include="Infra.LibraryDatabase.Tests.pas"/>
         <DCCReference Include="Infra.LibraryReader.Tests.pas"/>
+        <DCCReference Include="Infra.Fts5SearchIndex.Tests.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
@@ -115,7 +116,7 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
-        <PostBuildEvent>rem The custom sqlite3.dll with Snowball (B-31) is built into tools\sqlite\out.&amp;&amp;copy /Y &quot;$(PROJECTDIR)\..\tools\sqlite\out\sqlite3.dll&quot; &quot;$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll&quot;</PostBuildEvent>
+        <PostBuildEvent>copy /Y &quot;$(PROJECTDIR)\..\tools\sqlite\out\sqlite3.dll&quot; &quot;$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll&quot;</PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='Win64'">
@@ -123,7 +124,7 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
-        <PostBuildEvent>rem The custom sqlite3.dll with Snowball (B-31) is built into tools\sqlite\out.&amp;&amp;copy /Y &quot;$(PROJECTDIR)\..\tools\sqlite\out\sqlite3.dll&quot; &quot;$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll&quot;</PostBuildEvent>
+        <PostBuildEvent>copy /Y &quot;$(PROJECTDIR)\..\tools\sqlite\out\sqlite3.dll&quot; &quot;$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll&quot;</PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='Win32'">
@@ -131,7 +132,7 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
-        <PostBuildEvent>rem The custom sqlite3.dll with Snowball (B-31) is built into tools\sqlite\out.&amp;&amp;copy /Y &quot;$(PROJECTDIR)\..\tools\sqlite\out\sqlite3.dll&quot; &quot;$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll&quot;</PostBuildEvent>
+        <PostBuildEvent>copy /Y &quot;$(PROJECTDIR)\..\tools\sqlite\out\sqlite3.dll&quot; &quot;$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll&quot;</PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='Win64'">
@@ -139,7 +140,7 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
-        <PostBuildEvent>rem The custom sqlite3.dll with Snowball (B-31) is built into tools\sqlite\out.&amp;&amp;copy /Y &quot;$(PROJECTDIR)\..\tools\sqlite\out\sqlite3.dll&quot; &quot;$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll&quot;</PostBuildEvent>
+        <PostBuildEvent>copy /Y &quot;$(PROJECTDIR)\..\tools\sqlite\out\sqlite3.dll&quot; &quot;$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll&quot;</PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
 </Project>
