@@ -28,6 +28,8 @@ type
     [Test] procedure Book_PageMarkerOnlyWhereTextStartsAPage;
     [Test] procedure Book_TitleFromLeadingTitleParagraph;
     [Test] procedure Book_TitleFallsBackToChapterTitle;
+    [Test] procedure Book_TitleOnlyChapterDoesNotEndEmpty;
+    [Test] procedure Book_RuleIsOneGlyphInEBGaramond;
     [Test] procedure Book_EveryParagraphResetsCharacterFormatting;
     [Test] procedure Book_FocusAndOtherHitsAreBakedIn;
     [Test] procedure Book_HitStartsPointAtTheFirstMatch;
@@ -301,11 +303,39 @@ begin
   Doc := TChapterRtfBuilder.Build(SampleChapter, 'Розділ 3', Theme, THighlightRequest.None);
   Back := ReadBack(Doc.Rtf);
   // Title, label, the empty rule paragraph, then the epigraph.
-  Assert.IsTrue(Back.Text.StartsWith('Спокуса і гріхопадіння'#13'Розділ 3'#13#13'Епіграф'), Back.Text);
+  Assert.IsTrue(Back.Text.StartsWith('Спокуса і гріхопадіння'#13'Розділ 3'#13 + RuleTextFor(Theme) + #13'Епіграф'), Back.Text);
   Assert.AreEqual(0, Doc.Paragraphs[0].StartChar);
   Assert.Contains(Doc.Rtf, RtfChapterTitle);
   Assert.Contains(Doc.Rtf, RtfChapterLabel);
-  Assert.Contains(Doc.Rtf, '\brdrb\brdrs');
+  Assert.Contains(Doc.Rtf, RtfRule);
+end;
+
+procedure TChapterRtfBuilderTests.Book_TitleOnlyChapterDoesNotEndEmpty;
+var
+  Chapter: TChapterContent;
+  Doc: TChapterRtf;
+  Back: TRtfReadBack;
+begin
+  // DA:2 in the fixtures: the title and nothing else. An empty last paragraph is
+  // swallowed by RichEdit and the count comes out one short (seen on Windows).
+  Chapter := SampleChapter;
+  Chapter.Paragraphs := Copy(Chapter.Paragraphs, 0, 1);
+  Doc := TChapterRtfBuilder.Build(Chapter, 'Розділ 3', Theme, THighlightRequest.None);
+  Back := ReadBack(Doc.Rtf);
+  Assert.IsTrue(Back.Text.EndsWith(#13 + RuleTextFor(Theme)), Back.Text);
+  Assert.AreEqual(Length(Back.Text), Doc.ExpectedChars);
+end;
+
+procedure TChapterRtfBuilderTests.Book_RuleIsOneGlyphInEBGaramond;
+var
+  Back: TRtfReadBack;
+begin
+  Back := ReadBack(TChapterRtfBuilder.Build(SampleChapter, 'Розділ 3', Theme,
+    THighlightRequest.None).Rtf);
+  Assert.Contains(Back.Text, #13#$2E3B#13);
+  Back := ReadBack(TChapterRtfBuilder.Build(SampleChapter, 'Розділ 3',
+    NewReaderTheme(TextFontFallback), THighlightRequest.None).Rtf);
+  Assert.Contains(Back.Text, #13#$2014#$2014#13);                 // Georgia has no U+2E3B
 end;
 
 procedure TChapterRtfBuilderTests.Book_TitleFallsBackToChapterTitle;
@@ -319,7 +349,7 @@ begin
   Chapter.Title := 'Назва з каталогу';
   Doc := TChapterRtfBuilder.Build(Chapter, 'Розділ 3', Theme, THighlightRequest.None);
   Back := ReadBack(Doc.Rtf);
-  Assert.IsTrue(Back.Text.StartsWith('Назва з каталогу'#13'Розділ 3'#13#13), Back.Text);
+  Assert.IsTrue(Back.Text.StartsWith('Назва з каталогу'#13'Розділ 3'#13 + RuleTextFor(Theme) + #13), Back.Text);
   Assert.AreEqual(Integer(Length(Chapter.Paragraphs)), Integer(Length(Doc.Paragraphs)),
     'the title from the catalog is not a paragraph of the map');
   Assert.AreEqual(2, Doc.Paragraphs[0].LogicalIndex);
@@ -453,7 +483,7 @@ begin
   Doc := TChapterRtfBuilder.Build(Chapter, 'Буття', 'Розділ 3', Theme, TVerseHighlightRequest.None);
   Back := ReadBack(Doc.Rtf);
 
-  Assert.IsTrue(Back.Text.StartsWith('Буття'#13'Розділ 3'#13#13'1 А змій'), Back.Text);
+  Assert.IsTrue(Back.Text.StartsWith('Буття'#13'Розділ 3'#13 + RuleTextFor(Theme) + #13'1 А змій'), Back.Text);
   Assert.AreEqual(Length(Back.Text), Doc.ExpectedChars);
   Assert.AreEqual(3, Integer(Length(Doc.Paragraphs)));
   for I := 0 to High(Doc.Paragraphs) do

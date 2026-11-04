@@ -15,6 +15,7 @@ app.title = Slovo
 menu.file = &File
 menu.file.exit = E&xit
 menu.view = &View
+menu.view.zoomReset = Actual size
 menu.view.language = &Language
 menu.help = &Help
 menu.help.sqliteDiagnostics = SQLite &diagnostics...
@@ -39,6 +40,7 @@ category.spiritOfProphecy = Writings of E. G. White
 category.history = History
 category.spiritualLife = Spiritual life
 category.prophecyStudy = Prophecy study
+category.dailyReadings = Daily readings
 category.bible = Bible
 
 shelf.booksCount = Books in the library: %d

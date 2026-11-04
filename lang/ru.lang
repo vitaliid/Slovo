@@ -15,6 +15,7 @@ app.title = Slovo
 menu.file = &Файл
 menu.file.exit = &Выход
 menu.view = &Вид
+menu.view.zoomReset = Обычный размер
 menu.view.language = &Язык
 menu.help = &Справка
 menu.help.sqliteDiagnostics = Д&иагностика SQLite...
@@ -39,6 +40,7 @@ category.spiritOfProphecy = Труды Э. Уайт
 category.history = История
 category.spiritualLife = Духовная жизнь
 category.prophecyStudy = Изучение пророчеств
+category.dailyReadings = Ежедневные чтения
 category.bible = Библия
 
 shelf.booksCount = Книг в библиотеке: %d

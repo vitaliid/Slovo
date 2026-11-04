@@ -1,52 +1,99 @@
 ﻿unit Shell.MainForm;
 
-{ TMainForm - the VCL shell (Slovo_04 Part D) implementing IMainView.
+(* TMainForm - the VCL shell (Slovo_04 Part D) implementing IMainView.
 
-  At this step the form is a TEMPORARY smoke-test shell: the menu, a status line
-  and a plain read-only text box that shows the shelf or the opened chapter, with
-  Left/Right for the previous/next chapter. It exists to prove the composition
-  root, the two-phase start and the ViewModel end to end on the real library.
-  The real reading UI (VirtualTreeView, TRichEdit with RTF, search panel, banner)
-  replaces the body in the next step; Bind/Unbind stay.
+  This step: the CENTRE of the window - the text column (A.2, A.5, C.4):
+  breadcrumbs, the chapter as one RTF document in a TRichEdit (E-01), the
+  character-count check (C.4), zoom (E-11) and the ‹ › bar.
+
+  Still temporary: the shelf and the table of contents are a plain list box in
+  the same column (double click or Enter opens, Backspace goes up). It is
+  replaced by the VirtualTreeView panels in the next step; Bind/Unbind stay.
 
   No interface literal in the .dfm (E-05): every caption comes from
-  ApplyLocalization. }
+  ApplyLocalization. *)
 
 interface
 
 uses
   System.SysUtils,
   System.Classes,
+  System.Actions,
+  Winapi.Windows,
+  Winapi.Messages,
   Vcl.Controls,
   Vcl.Forms,
   Vcl.Menus,
   Vcl.StdCtrls,
   Vcl.ExtCtrls,
+  Vcl.ComCtrls,
+  Vcl.ActnList,
   Core.Domain,
   Core.Contracts,
   Presentation.MainViewModel,
   Presentation.Theme,
+  Presentation.ChapterRtf,
   Presentation.Views;
 
 type
+  // What the temporary list shows in each row and what a double click opens.
+  TShellItemKind = (likModule, likTranslation, likBibleBook, likChapter, likBibleChapter);
+
+  TShellListItem = record
+    Kind: TShellItemKind;
+    ModuleId: TModuleId;
+    BookCode: TBookCode;
+    Number: Integer;                     // ChapterOrder / ChapterNumber
+  end;
+
+  // The last chapter shown - re-rendered when the language changes ("Розділ N").
+  TShownChapter = (scNone, scBook, scBible);
+
   TMainForm = class(TForm, IMainView)
     mmMain: TMainMenu;
     miFile: TMenuItem;
     miExit: TMenuItem;
     miView: TMenuItem;
+    miZoomIn: TMenuItem;
+    miZoomOut: TMenuItem;
+    miZoomReset: TMenuItem;
+    miViewSeparator: TMenuItem;
     miLanguage: TMenuItem;
     miLanguageUkrainian: TMenuItem;
     miLanguageRussian: TMenuItem;
     miLanguageEnglish: TMenuItem;
     miHelp: TMenuItem;
     miSQLiteDiagnostics: TMenuItem;
+    alMain: TActionList;
+    actZoomIn: TAction;
+    actZoomOut: TAction;
+    actZoomReset: TAction;
+    actPrevChapter: TAction;
+    actNextChapter: TAction;
     pnlStatus: TPanel;
     lblStatus: TLabel;
-    memText: TMemo;
+    pnlCenter: TPanel;
+    pnlColumn: TPanel;
+    lblCrumbs: TLabel;
+    redReader: TRichEdit;
+    lstItems: TListBox;
+    pnlChapterNav: TPanel;
+    btnPrevChapter: TButton;
+    btnNextChapter: TButton;
+    procedure FormCreate(Sender: TObject);
+    procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure pnlCenterResize(Sender: TObject);
+    procedure lstItemsDblClick(Sender: TObject);
+    procedure lstItemsKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure actZoomInExecute(Sender: TObject);
+    procedure actZoomOutExecute(Sender: TObject);
+    procedure actZoomResetExecute(Sender: TObject);
+    procedure actPrevChapterExecute(Sender: TObject);
+    procedure actNextChapterExecute(Sender: TObject);
+    procedure alMainUpdate(Action: TBasicAction; var Handled: Boolean);
     procedure miExitClick(Sender: TObject);
     procedure miLanguageItemClick(Sender: TObject);
     procedure miSQLiteDiagnosticsClick(Sender: TObject);
-    procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
   private
     FViewModel: TMainViewModel;
     FSettings: ISettings;
@@ -57,12 +104,30 @@ type
     FOnBibleChapterLoaded: TProc<TBibleChapterLoadedArgs>;
     FOnSearchCompleted: TProc<TSearchReply>;
     FOnErrorOccurred: TProc<TResultError>;
-    FNodeCount: Integer;
+
+    FItems: TArray<TShellListItem>;
+    FZoomStep: Integer;
+    FShown: TShownChapter;
+    FLastChapter: TChapterLoadedArgs;
+    FLastBibleChapter: TBibleChapterLoadedArgs;
+    FDoc: TChapterRtf;                   // the map of what the reader shows (E-13 later)
+    FReaderWndProc: TWndMethod;
 
     procedure ApplyLocalization;
-    procedure ShowShelf;
-    procedure ShowChapter(const Args: TChapterLoadedArgs);
-    procedure ShowBibleChapter(const Args: TBibleChapterLoadedArgs);
+    procedure UpdateStatus;
+    procedure ShowView(View: TReaderView);
+    procedure FillShelf;
+    procedure FillToc;
+    procedure AddItem(const Caption: string; const Item: TShellListItem);
+    procedure OpenItem(Index: Integer);
+    procedure GoUp;
+    procedure RenderChapter(const Args: TChapterLoadedArgs);
+    procedure RenderBibleChapter(const Args: TBibleChapterLoadedArgs);
+    procedure LoadDocument(const Doc: TChapterRtf; Focus: Integer);
+    procedure UpdateCrumbs;
+    procedure SetZoomStep(Value: Integer);
+    procedure ReaderWndProc(var Message: TMessage);
+    procedure HideReaderCaret;
     procedure ShowError(Error: TResultError);
     procedure HandleException(Sender: TObject; E: Exception);
     procedure RestoreGeometry;
@@ -83,11 +148,18 @@ implementation
 uses
   System.Types,
   System.UITypes,
+  System.Math,
+  Winapi.RichEdit,
   Vcl.Dialogs,
   Presentation.Localization,
-  Infrastructure.SQLite3.Database;
+  Infrastructure.SQLite3.Database,
+  Shell.RichEdit;
 
 {$R *.dfm}
+
+const
+  MinZoomStep = -4;                      // E-11: 15..30 px
+  MaxZoomStep = 6;
 
 function ErrorKey(Error: TResultError): string;
 const
@@ -96,6 +168,34 @@ const
     'error.unsupportedModule', 'error.unsupportedSchema', 'error.unexpected');
 begin
   Result := Keys[Error];
+end;
+
+function ZoomPx(Step: Integer): Double;
+begin
+  Result := BaseTextPx + ZoomStepPx * Step;
+end;
+
+{ form }
+
+procedure TMainForm.FormCreate(Sender: TObject);
+begin
+  // A.6: Ctrl+= / Ctrl+- / Ctrl+0, numeric keypad as the second shortcut.
+  actZoomIn.ShortCut := ShortCut(VK_OEM_PLUS, [ssCtrl]);
+  actZoomIn.SecondaryShortCuts.Add(ShortCutToText(ShortCut(VK_ADD, [ssCtrl])));
+  actZoomOut.ShortCut := ShortCut(VK_OEM_MINUS, [ssCtrl]);
+  actZoomOut.SecondaryShortCuts.Add(ShortCutToText(ShortCut(VK_SUBTRACT, [ssCtrl])));
+  actZoomReset.ShortCut := ShortCut(Ord('0'), [ssCtrl]);
+
+  pnlCenter.Color := ColorBackground;
+  pnlColumn.Color := ColorBackground;
+  pnlChapterNav.Color := ColorBackground;
+  redReader.Color := ColorBackground;
+  lstItems.Color := ColorBackground;
+  lblCrumbs.Font.Color := ColorMuted;
+
+  // E-11: Ctrl+wheel is ours, so msftedit's own zoom never drifts from the setting.
+  FReaderWndProc := redReader.WindowProc;
+  redReader.WindowProc := ReaderWndProc;
 end;
 
 { IMainView }
@@ -107,10 +207,10 @@ begin
   FSettings := Settings;
   FTheme := Theme;
 
-  FOnLibraryChanged := procedure(Nodes: TArray<TLibraryNode>) begin FNodeCount := Length(Nodes); end;
-  FOnViewChanged := procedure(View: TReaderView) begin if View = rvShelf then ShowShelf; end;
-  FOnChapterLoaded := procedure(Args: TChapterLoadedArgs) begin ShowChapter(Args); end;
-  FOnBibleChapterLoaded := procedure(Args: TBibleChapterLoadedArgs) begin ShowBibleChapter(Args); end;
+  FOnLibraryChanged := procedure(Nodes: TArray<TLibraryNode>) begin end;    // the tree - next step
+  FOnViewChanged := procedure(View: TReaderView) begin ShowView(View); end;
+  FOnChapterLoaded := procedure(Args: TChapterLoadedArgs) begin RenderChapter(Args); end;
+  FOnBibleChapterLoaded := procedure(Args: TBibleChapterLoadedArgs) begin RenderBibleChapter(Args); end;
   FOnSearchCompleted := procedure(Reply: TSearchReply) begin end;
   FOnErrorOccurred := procedure(Error: TResultError) begin ShowError(Error); end;
 
@@ -122,12 +222,15 @@ begin
   FViewModel.OnErrorOccurred.Add(FOnErrorOccurred);
 
   Application.OnException := HandleException;
-  memText.Font.Name := FTheme.TextFont;
   Font.Name := FTheme.UiFont;
+  lstItems.Font.Name := FTheme.TextFont;
+  FZoomStep := EnsureRange(FSettings.GetZoomStep, MinZoomStep, MaxZoomStep);
+  PrepareReader(redReader);
+  SetZoomPx(redReader, ZoomPx(FZoomStep));
   ApplyLocalization;
   RestoreGeometry;
 
-  FViewModel.Start;                      // phase 1: tree, position or Shelf (E-16)
+  FViewModel.Start;                      // phase 1: position or Shelf (E-16)
 end;
 
 procedure TMainForm.Unbind;
@@ -146,6 +249,7 @@ begin
     FSettings.SetWindowBounds(BoundsRect, False)
   else
     FSettings.SetWindowBounds(BoundsRect, WindowState = wsMaximized);
+  FSettings.SetZoomStep(FZoomStep);
   FSettings.Save;
   FViewModel := nil;
 end;
@@ -173,6 +277,10 @@ begin
   miFile.Caption := L('menu.file');
   miExit.Caption := L('menu.file.exit');
   miView.Caption := L('menu.view');
+  actZoomIn.Caption := L('header.bigger');
+  actZoomOut.Caption := L('header.smaller');
+  actZoomReset.Caption := L('menu.view.zoomReset');
+  miViewSeparator.Caption := cLineCaption;
   miLanguage.Caption := L('menu.view.language');
   miHelp.Caption := L('menu.help');
   miSQLiteDiagnostics.Caption := L('menu.help.sqliteDiagnostics');
@@ -184,73 +292,381 @@ begin
   miLanguageRussian.Checked := Localizer.Language = UILanguageCodes[1];
   miLanguageEnglish.Checked := Localizer.Language = UILanguageCodes[2];
 
-  lblStatus.Caption := L('library.title') + ': ' + IntToStr(Length(FViewModel.Catalog.Modules));
+  actPrevChapter.Caption := '‹  ' + L('read.prevChapter');
+  actNextChapter.Caption := L('read.nextChapter') + '  ›';
+  UpdateStatus;
 end;
 
-{ temporary body }
+procedure TMainForm.UpdateStatus;
+begin
+  lblStatus.Caption := Format('%s: %d  ·  %d %%', [L('library.title'),
+    Length(FViewModel.Catalog.Modules), Round(ZoomPx(FZoomStep) / BaseTextPx * 100)]);
+end;
 
-procedure TMainForm.ShowShelf;
+{ the text column (A.2) }
+
+procedure TMainForm.pnlCenterResize(Sender: TObject);
+begin
+  // A.5: Width = Min(724, available), centred; the scroll bar sits by the column.
+  pnlColumn.Width := Min(ScaleValue(TextColumnMax), pnlCenter.ClientWidth);
+  pnlColumn.Left := (pnlCenter.ClientWidth - pnlColumn.Width) div 2;
+  pnlColumn.Top := 0;
+  pnlColumn.Height := pnlCenter.ClientHeight;
+end;
+
+procedure TMainForm.ShowView(View: TReaderView);
+begin
+  redReader.Visible := View = rvRead;
+  pnlChapterNav.Visible := View = rvRead;
+  lstItems.Visible := View <> rvRead;
+  case View of
+    rvShelf: FillShelf;
+    rvToc:   FillToc;
+  end;
+  UpdateCrumbs;
+  // During Start the form is not shown yet: CanFocus ignores the form's own
+  // visibility, Showing does not.
+  if (View = rvRead) and redReader.Showing then
+    redReader.SetFocus
+  else if (View <> rvRead) and lstItems.Showing then
+    lstItems.SetFocus;
+end;
+
+procedure TMainForm.UpdateCrumbs;
 var
   M: TModule;
+  Parts: TArray<string>;
+  P: TReadingPosition;
 begin
-  memText.Lines.BeginUpdate;
-  try
-    memText.Lines.Clear;
-    memText.Lines.Add(L(CategoryKeys[FViewModel.ShelfCategory]));
-    memText.Lines.Add('');
-    for M in FViewModel.Catalog.Modules do
-      if (M.Kind = ckBook) and (M.Category = FViewModel.ShelfCategory) then
-        memText.Lines.Add(M.Title + '  ·  ' + L('library.chapters', [M.ChildCount]));
-  finally
-    memText.Lines.EndUpdate;
-  end;
-end;
-
-procedure TMainForm.ShowChapter(const Args: TChapterLoadedArgs);
-var
-  P: TParagraphContent;
-begin
-  memText.Lines.BeginUpdate;
-  try
-    memText.Lines.Clear;
-    memText.Lines.Add(FViewModel.ModuleTitle(Args.Content.Ref.ModuleId));
-    memText.Lines.Add(L('read.chapter', [Args.Content.Ref.ChapterOrder]) + ' · ' + Args.Content.Title);
-    memText.Lines.Add('');
-    for P in Args.Content.Paragraphs do
-    begin
-      if (P.StartPageNumber > 0) and (P.ParagraphOnPage = 1) then
-        memText.Lines.Add(Format('[%d] %s', [P.StartPageNumber, P.Text]))
+  Parts := nil;
+  case FViewModel.View of
+    rvShelf:
+      if FViewModel.ShelfTranslation <> '' then
+        Parts := [L(BibleCategoryKey), FViewModel.ModuleTitle(FViewModel.ShelfTranslation)]
       else
-        memText.Lines.Add(P.Text);
-      memText.Lines.Add('');
-    end;
-  finally
-    memText.Lines.EndUpdate;
+        Parts := [L(CategoryKeys[FViewModel.ShelfCategory])];
+    rvToc:
+      if FViewModel.TocBook.BookCode <> '' then
+        Parts := [L(BibleCategoryKey) + ' · ' + FViewModel.ModuleTitle(FViewModel.TocBook.ModuleId),
+          FViewModel.BookTitle(FViewModel.TocBook)]
+      else if FViewModel.Catalog.FindModule(FViewModel.TocModule, M) then
+        Parts := [L(CategoryKeys[M.Category]), M.Title];
+    rvRead:
+      begin
+        P := FViewModel.Position;
+        if P.Kind = ckBibleTranslation then
+          Parts := [L(BibleCategoryKey) + ' · ' + FViewModel.ModuleTitle(P.BibleChapter.Book.ModuleId),
+            FViewModel.BookTitle(P.BibleChapter.Book),
+            FViewModel.BookTitle(P.BibleChapter.Book) + ' ' + IntToStr(P.BibleChapter.ChapterNumber)]
+        else if FViewModel.Catalog.FindModule(P.Chapter.ModuleId, M) then
+          Parts := [L(CategoryKeys[M.Category]), M.Title,
+            L('read.chapter', [P.Chapter.ChapterOrder]) + ' · ' + FViewModel.ChapterTitle(P.Chapter)];
+      end;
   end;
-  memText.SelStart := 0;
+  lblCrumbs.Caption := string.Join('  /  ', Parts).ToUpper;
 end;
 
-procedure TMainForm.ShowBibleChapter(const Args: TBibleChapterLoadedArgs);
-var
-  V: TVerseContent;
+{ temporary shelf and table of contents - replaced by VST (C.5) }
+
+procedure TMainForm.AddItem(const Caption: string; const Item: TShellListItem);
 begin
-  memText.Lines.BeginUpdate;
-  try
-    memText.Lines.Clear;
-    memText.Lines.Add(FViewModel.ModuleTitle(Args.Content.Ref.Book.ModuleId));
-    memText.Lines.Add(Format('%s %d', [Args.BookTitle, Args.Content.Ref.ChapterNumber]));
-    memText.Lines.Add('');
-    for V in Args.Content.Verses do
-      memText.Lines.Add(Format('%d %s', [V.Ref.VerseNumber, V.Text]));
-  finally
-    memText.Lines.EndUpdate;
-  end;
-  memText.SelStart := 0;
+  lstItems.Items.Add(Caption);
+  FItems := FItems + [Item];
 end;
+
+procedure TMainForm.FillShelf;
+var
+  M: TModule;
+  B: TBookInfo;
+  Item: TShellListItem;
+begin
+  lstItems.Items.BeginUpdate;
+  try
+    lstItems.Items.Clear;
+    FItems := nil;
+    Item := Default(TShellListItem);
+    if FViewModel.ShelfTranslation <> '' then
+      for B in FViewModel.Catalog.Books(FViewModel.ShelfTranslation) do
+      begin
+        Item.Kind := likBibleBook;
+        Item.ModuleId := B.Ref.ModuleId;
+        Item.BookCode := B.Ref.BookCode;
+        AddItem(B.DisplayTitle + '  ·  ' + L('library.bibleChapters', [B.ChapterCount]), Item);
+      end
+    else
+      // Temporary: every module, so that the Bible is reachable without the tree.
+      for M in FViewModel.Catalog.Modules do
+      begin
+        Item.ModuleId := M.Id;
+        if M.Kind = ckBibleTranslation then
+        begin
+          Item.Kind := likTranslation;
+          AddItem(L(BibleCategoryKey) + ' · ' + M.Title + '  ·  ' + L('library.bibleBooks', [M.ChildCount]), Item);
+        end
+        else
+        begin
+          Item.Kind := likModule;
+          AddItem(M.Title + '  ·  ' + L('library.chapters', [M.ChildCount]), Item);
+        end;
+      end;
+  finally
+    lstItems.Items.EndUpdate;
+  end;
+  if lstItems.Count > 0 then
+    lstItems.ItemIndex := 0;
+end;
+
+procedure TMainForm.FillToc;
+var
+  C: TChapterInfo;
+  B: TBookInfo;
+  Item: TShellListItem;
+  I: Integer;
+begin
+  lstItems.Items.BeginUpdate;
+  try
+    lstItems.Items.Clear;
+    FItems := nil;
+    Item := Default(TShellListItem);
+    if FViewModel.TocBook.BookCode <> '' then
+    begin
+      for B in FViewModel.Catalog.Books(FViewModel.TocBook.ModuleId) do
+        if B.Ref.BookCode = FViewModel.TocBook.BookCode then
+          for I := 1 to B.ChapterCount do
+          begin
+            Item.Kind := likBibleChapter;
+            Item.ModuleId := B.Ref.ModuleId;
+            Item.BookCode := B.Ref.BookCode;
+            Item.Number := I;
+            AddItem(B.DisplayTitle + ' ' + IntToStr(I), Item);
+          end;
+    end
+    else
+      for C in FViewModel.Catalog.Chapters(FViewModel.TocModule) do
+      begin
+        Item.Kind := likChapter;
+        Item.ModuleId := C.Ref.ModuleId;
+        Item.Number := C.Ref.ChapterOrder;
+        AddItem(Format('%3d   %s', [C.Ref.ChapterOrder, C.Title]), Item);
+      end;
+  finally
+    lstItems.Items.EndUpdate;
+  end;
+  if lstItems.Count > 0 then
+    lstItems.ItemIndex := 0;
+end;
+
+procedure TMainForm.OpenItem(Index: Integer);
+var
+  Item: TShellListItem;
+  Book: TBookRef;
+  Chapter: TChapterRef;
+  BibleChapter: TBibleChapterRef;
+begin
+  if (Index < 0) or (Index > High(FItems)) then
+    Exit;
+  Item := FItems[Index];
+  Book.ModuleId := Item.ModuleId;
+  Book.BookCode := Item.BookCode;
+  case Item.Kind of
+    likModule:      FViewModel.ShowToc(Item.ModuleId);
+    likTranslation: FViewModel.ShowShelf(Item.ModuleId);
+    likBibleBook:   FViewModel.ShowToc(Book);
+    likChapter:
+      begin
+        Chapter.ModuleId := Item.ModuleId;
+        Chapter.ChapterOrder := Item.Number;
+        FViewModel.OpenChapter(Chapter);
+      end;
+    likBibleChapter:
+      begin
+        BibleChapter.Book := Book;
+        BibleChapter.ChapterNumber := Item.Number;
+        FViewModel.OpenChapter(BibleChapter);
+      end;
+  end;
+end;
+
+// Backspace: what the breadcrumbs will do (A.2) - Read -> Toc -> Shelf.
+procedure TMainForm.GoUp;
+var
+  P: TReadingPosition;
+begin
+  case FViewModel.View of
+    rvRead:
+      begin
+        P := FViewModel.Position;
+        if P.Kind = ckBibleTranslation then
+          FViewModel.ShowToc(P.BibleChapter.Book)
+        else
+          FViewModel.ShowToc(P.Chapter.ModuleId);
+      end;
+    rvToc:
+      if FViewModel.TocBook.BookCode <> '' then
+        FViewModel.ShowShelf(FViewModel.TocBook.ModuleId)
+      else
+        FViewModel.ShowShelf(FViewModel.ShelfCategory);
+    rvShelf:
+      if FViewModel.ShelfTranslation <> '' then
+        FViewModel.ShowShelf(FViewModel.ShelfCategory);
+  end;
+end;
+
+procedure TMainForm.lstItemsDblClick(Sender: TObject);
+begin
+  OpenItem(lstItems.ItemIndex);
+end;
+
+procedure TMainForm.lstItemsKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+begin
+  if Key = vkReturn then
+  begin
+    OpenItem(lstItems.ItemIndex);
+    Key := 0;
+  end;
+end;
+
+{ reading (C.4) }
+
+procedure TMainForm.RenderChapter(const Args: TChapterLoadedArgs);
+var
+  Request: THighlightRequest;
+begin
+  FShown := scBook;
+  FLastChapter := Args;
+  Request.Hits := Args.Hits;
+  Request.Focus := Args.Focus;
+  LoadDocument(TChapterRtfBuilder.Build(Args.Content,
+    L('read.chapter', [Args.Content.Ref.ChapterOrder]), FTheme, Request), Args.Focus);
+end;
+
+procedure TMainForm.RenderBibleChapter(const Args: TBibleChapterLoadedArgs);
+var
+  Request: TVerseHighlightRequest;
+begin
+  FShown := scBible;
+  FLastBibleChapter := Args;
+  Request.Hits := Args.Hits;
+  Request.Focus := Args.Focus;
+  LoadDocument(TChapterRtfBuilder.Build(Args.Content, Args.BookTitle,
+    L('read.chapter', [Args.Content.Ref.ChapterNumber]), FTheme, Request), Args.Focus);
+end;
+
+procedure TMainForm.LoadDocument(const Doc: TChapterRtf; Focus: Integer);
+var
+  StreamError, Actual: Integer;
+begin
+  FDoc := Doc;
+  redReader.Lines.BeginUpdate;
+  try
+    StreamInRtf(redReader, Doc.Rtf, StreamError);
+    SetZoomPx(redReader, ZoomPx(FZoomStep));
+  finally
+    redReader.Lines.EndUpdate;
+  end;
+
+  // C.4: the user sees what got in; only the log knows about a shortfall.
+  Actual := PreciseLength(redReader);
+  if (StreamError <> 0) or (Actual <> Doc.ExpectedChars) then
+    FViewModel.ReportRenderProblem(Format(
+      'Chapter %s rendered incompletely: expected %d chars, got %d, stream error %d',
+      [Doc.Where, Doc.ExpectedChars, Actual, StreamError]));
+
+  if (Focus >= 0) and (Focus <= High(Doc.HitStarts)) and (Doc.HitStarts[Focus] >= 0) then
+    ScrollToChar(redReader, Doc.HitStarts[Focus])
+  else
+    ScrollToChar(redReader, 0);
+  UpdateCrumbs;
+end;
+
+{ zoom (E-11) }
+
+procedure TMainForm.SetZoomStep(Value: Integer);
+begin
+  Value := EnsureRange(Value, MinZoomStep, MaxZoomStep);
+  if Value = FZoomStep then
+    Exit;
+  FZoomStep := Value;
+  SetZoomPx(redReader, ZoomPx(FZoomStep));
+  FSettings.SetZoomStep(FZoomStep);
+  UpdateStatus;
+end;
+
+procedure TMainForm.ReaderWndProc(var Message: TMessage);
+begin
+  if (Message.Msg = WM_MOUSEWHEEL) and (LoWord(Message.WParam) and MK_CONTROL <> 0) then
+  begin
+    if SmallInt(HiWord(Message.WParam)) > 0 then
+      SetZoomStep(FZoomStep + 1)
+    else
+      SetZoomStep(FZoomStep - 1);
+    Message.Result := 0;
+    Exit;
+  end;
+  FReaderWndProc(Message);
+  // A book, not an editor: no blinking caret. RichEdit shows the caret again
+  // after focus, clicks, keys and selection changes, so it is hidden after each
+  // of them. Extra HideCaret calls are harmless: the caret is destroyed on
+  // WM_KILLFOCUS and its hide count starts over with the next one.
+  case Message.Msg of
+    // WM_PAINT: when the window first appears, msftedit shows the caret after
+    // painting, not in WM_SETFOCUS (seen on Windows 11).
+    // WM_MOUSEMOVE: while the button is held, every move re-shows it.
+    WM_SETFOCUS, WM_PAINT, WM_MOUSEMOVE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_LBUTTONDBLCLK,
+    WM_KEYDOWN, WM_KEYUP,
+    EM_EXSETSEL, EM_SCROLLCARET:
+      HideReaderCaret;
+  end;
+end;
+
+procedure TMainForm.HideReaderCaret;
+begin
+  if redReader.HandleAllocated and (GetFocus = redReader.Handle) then
+    HideCaret(redReader.Handle);
+end;
+
+procedure TMainForm.actZoomInExecute(Sender: TObject);
+begin
+  SetZoomStep(FZoomStep + 1);
+end;
+
+procedure TMainForm.actZoomOutExecute(Sender: TObject);
+begin
+  SetZoomStep(FZoomStep - 1);
+end;
+
+procedure TMainForm.actZoomResetExecute(Sender: TObject);
+begin
+  SetZoomStep(0);
+end;
+
+procedure TMainForm.actPrevChapterExecute(Sender: TObject);
+begin
+  FViewModel.PreviousChapter;
+end;
+
+procedure TMainForm.actNextChapterExecute(Sender: TObject);
+begin
+  FViewModel.NextChapter;
+end;
+
+procedure TMainForm.alMainUpdate(Action: TBasicAction; var Handled: Boolean);
+begin
+  if FViewModel = nil then
+    Exit;
+  actZoomIn.Enabled := FZoomStep < MaxZoomStep;
+  actZoomOut.Enabled := FZoomStep > MinZoomStep;
+  actZoomReset.Enabled := FZoomStep <> 0;
+  actPrevChapter.Enabled := (FViewModel.View = rvRead) and FViewModel.CanGoPrevious;
+  actNextChapter.Enabled := (FViewModel.View = rvRead) and FViewModel.CanGoNext;
+  Handled := True;
+end;
+
+{ errors }
 
 procedure TMainForm.ShowError(Error: TResultError);
 begin
-  lblStatus.Caption := L(ErrorKey(Error));
+  lblStatus.Caption := L(ErrorKey(Error));       // the banner (E-15) - next step
 end;
 
 procedure TMainForm.HandleException(Sender: TObject; E: Exception);
@@ -259,25 +675,31 @@ begin
     FViewModel.ReportUnexpected(E.ClassName + ': ' + E.Message);
 end;
 
-{ events }
+{ keyboard (A.6) }
 
 procedure TMainForm.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
 begin
   if FViewModel = nil then
     Exit;
   case Key of
-    vkLeft:
+    vkLeft, vkRight:
+      if (FViewModel.View = rvRead) and (Shift = []) then
       begin
-        FViewModel.PreviousChapter;
+        if Key = vkLeft then
+          FViewModel.PreviousChapter
+        else
+          FViewModel.NextChapter;
         Key := 0;
       end;
-    vkRight:
+    vkBack:
       begin
-        FViewModel.NextChapter;
+        GoUp;
         Key := 0;
       end;
   end;
 end;
+
+{ menu }
 
 procedure TMainForm.miExitClick(Sender: TObject);
 begin
@@ -295,8 +717,17 @@ begin
   Localizer.SetLanguage(UILanguageCodes[Index]);
   FSettings.SetLanguage(UILanguageCodes[Index]);
   ApplyLocalization;
-  if FViewModel.View = rvShelf then
-    ShowShelf;
+  // "Розділ N" is inside the document - rebuild it; lists carry localized counters.
+  case FViewModel.View of
+    rvShelf: FillShelf;
+    rvToc:   FillToc;
+    rvRead:
+      case FShown of
+        scBook:  RenderChapter(FLastChapter);
+        scBible: RenderBibleChapter(FLastBibleChapter);
+      end;
+  end;
+  UpdateCrumbs;
 end;
 
 // The report is technical and stays English.

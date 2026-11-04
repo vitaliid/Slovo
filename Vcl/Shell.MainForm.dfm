@@ -1,9 +1,11 @@
 object MainForm: TMainForm
   Left = 0
   Top = 0
-  ClientHeight = 700
-  ClientWidth = 1000
+  ClientHeight = 760
+  ClientWidth = 1200
   Color = clBtnFace
+  Constraints.MinHeight = 600
+  Constraints.MinWidth = 900
   Font.Charset = DEFAULT_CHARSET
   Font.Color = clWindowText
   Font.Height = -12
@@ -12,12 +14,13 @@ object MainForm: TMainForm
   KeyPreview = True
   Menu = mmMain
   Position = poScreenCenter
+  OnCreate = FormCreate
   OnKeyDown = FormKeyDown
   TextHeight = 15
   object pnlStatus: TPanel
     Left = 0
     Top = 0
-    Width = 1000
+    Width = 1200
     Height = 28
     Align = alTop
     BevelOuter = bvNone
@@ -26,30 +29,116 @@ object MainForm: TMainForm
       AlignWithMargins = True
       Left = 8
       Top = 6
-      Width = 984
-      Height = 16
+      Width = 1184
+      Height = 19
       Margins.Left = 8
       Margins.Top = 6
       Margins.Right = 8
       Align = alClient
     end
   end
-  object memText: TMemo
+  object pnlCenter: TPanel
     Left = 0
     Top = 28
-    Width = 1000
-    Height = 672
+    Width = 1200
+    Height = 732
     Align = alClient
-    BorderStyle = bsNone
-    Font.Charset = DEFAULT_CHARSET
-    Font.Color = 3092271
-    Font.Height = -21
-    Font.Name = 'Georgia'
-    Font.Style = []
-    ParentFont = False
-    ReadOnly = True
-    ScrollBars = ssVertical
+    BevelOuter = bvNone
+    ParentBackground = False
     TabOrder = 1
+    OnResize = pnlCenterResize
+    object pnlColumn: TPanel
+      Left = 238
+      Top = 0
+      Width = 724
+      Height = 732
+      BevelOuter = bvNone
+      ParentBackground = False
+      TabOrder = 0
+      object lblCrumbs: TLabel
+        AlignWithMargins = True
+        Left = 0
+        Top = 16
+        Width = 724
+        Height = 15
+        Margins.Left = 0
+        Margins.Top = 16
+        Margins.Right = 0
+        Margins.Bottom = 16
+        Align = alTop
+        EllipsisPosition = epEndEllipsis
+      end
+      object redReader: TRichEdit
+        Left = 0
+        Top = 47
+        Width = 724
+        Height = 641
+        Align = alClient
+        BorderStyle = bsNone
+        HideSelection = False
+        ReadOnly = True
+        ScrollBars = ssVertical
+        TabOrder = 0
+        WantReturns = False
+      end
+      object lstItems: TListBox
+        Left = 0
+        Top = 47
+        Width = 724
+        Height = 641
+        Align = alClient
+        BorderStyle = bsNone
+        Font.Charset = DEFAULT_CHARSET
+        Font.Color = 3092271
+        Font.Height = -19
+        Font.Name = 'Georgia'
+        Font.Style = []
+        ItemHeight = 28
+        ParentFont = False
+        TabOrder = 1
+        Visible = False
+        OnDblClick = lstItemsDblClick
+        OnKeyDown = lstItemsKeyDown
+      end
+      object pnlChapterNav: TPanel
+        Left = 0
+        Top = 688
+        Width = 724
+        Height = 44
+        Align = alBottom
+        BevelOuter = bvNone
+        ParentBackground = False
+        TabOrder = 2
+        object btnPrevChapter: TButton
+          AlignWithMargins = True
+          Left = 0
+          Top = 8
+          Width = 200
+          Height = 28
+          Margins.Left = 0
+          Margins.Top = 8
+          Margins.Bottom = 8
+          Action = actPrevChapter
+          Align = alLeft
+          TabOrder = 0
+          TabStop = False
+        end
+        object btnNextChapter: TButton
+          AlignWithMargins = True
+          Left = 524
+          Top = 8
+          Width = 200
+          Height = 28
+          Margins.Top = 8
+          Margins.Right = 0
+          Margins.Bottom = 8
+          Action = actNextChapter
+          Align = alRight
+          TabOrder = 1
+          TabStop = False
+        end
+      end
+    end
   end
   object mmMain: TMainMenu
     Left = 32
@@ -60,6 +149,17 @@ object MainForm: TMainForm
       end
     end
     object miView: TMenuItem
+      object miZoomIn: TMenuItem
+        Action = actZoomIn
+      end
+      object miZoomOut: TMenuItem
+        Action = actZoomOut
+      end
+      object miZoomReset: TMenuItem
+        Action = actZoomReset
+      end
+      object miViewSeparator: TMenuItem
+      end
       object miLanguage: TMenuItem
         object miLanguageUkrainian: TMenuItem
           GroupIndex = 1
@@ -84,6 +184,26 @@ object MainForm: TMainForm
       object miSQLiteDiagnostics: TMenuItem
         OnClick = miSQLiteDiagnosticsClick
       end
+    end
+  end
+  object alMain: TActionList
+    OnUpdate = alMainUpdate
+    Left = 104
+    Top = 64
+    object actZoomIn: TAction
+      OnExecute = actZoomInExecute
+    end
+    object actZoomOut: TAction
+      OnExecute = actZoomOutExecute
+    end
+    object actZoomReset: TAction
+      OnExecute = actZoomResetExecute
+    end
+    object actPrevChapter: TAction
+      OnExecute = actPrevChapterExecute
+    end
+    object actNextChapter: TAction
+      OnExecute = actNextChapterExecute
     end
   end
 end

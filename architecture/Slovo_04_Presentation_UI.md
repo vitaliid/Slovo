@@ -439,6 +439,7 @@ header.silence = Тиша
 header.silence.exit = Вийти з тиші
 header.silence.hint = Сховати все, крім тексту (Esc повертає)
 header.search = Пошук ( / )
+menu.view.zoomReset = Звичайний розмір
 library.title = Бібліотека
 library.checkHint = Шукати в цій книзі
 library.chapters = %d розд.
@@ -448,6 +449,7 @@ category.spiritOfProphecy = Праці Е. Ґ. Вайт
 category.history = Історія
 category.spiritualLife = Духовне життя
 category.prophecyStudy = Дослідження пророцтв
+category.dailyReadings = Щоденні читання
 category.bible = Біблія
 shelf.booksCount = Книг у бібліотеці: %d
 shelf.reading = читаю · розділ %d
@@ -563,7 +565,7 @@ type
 
 | `Kind` | RTF |
 |---|---|
-| `pkChapterTitle` | **перший блок документа:** заголовок `\pard\f0\fs69\cf7` (46 px); під ним «Розділ N» `\fs26\i\cf3` (17 px); далі лінія — порожній центрований абзац з нижньою рамкою `\brdrb\brdrs\brdrw10\brdrcf3`, звужений однаковими `\li`/`\ri` до `RuleWidthPx` = 72 px у колонці `TextColumnMax`. Для Біблії — назва книги (`BookTitle`) і «Розділ N» |
+| `pkChapterTitle` | **перший блок документа:** заголовок `\pard\f0\fs69\cf7` (46 px); під ним «Розділ N» `\fs26\i\cf3` (17 px); далі лінія — центрований абзац `\qc\sa600\f0\fs22\cf3` з текстом «———» (три тире). **Не рамка абзацу:** RichEdit зберігає `\brdr…`, але не малює (перевірено на Windows, 2026-11-04). І **не порожній абзац**: порожній останній абзац RichEdit поглинає у власну кінцеву позначку, і `ExpectedChars` розходиться на 1 — так було з розділом, що має лише заголовок. Для Біблії — назва книги (`BookTitle`) і «Розділ N» |
 | `pkSubChapterTitle` | `\pard\sb480\sa240\f0\fs42\cf1` (28 px) — менший за заголовок глави, у тексті |
 | `pkEpigraph` | `\pard\li600\ri600\sa660\f0\fs29\i\cf4` (19 px; E-10 — одним блоком) |
 | `pkSectionHeading` | `\pard\sb480\sa240\f0\fs31\b\cf1` — справжній Bold-файл (E-04) |

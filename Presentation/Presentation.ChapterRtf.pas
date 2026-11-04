@@ -84,9 +84,15 @@ const
   RtfHitCurrent      = '\highlight5';
   RtfHitOther        = '\highlight6';
 
-  // The short centered rule under the title: an empty paragraph with a bottom
-  // border, narrowed by equal indents within the text column (A.1).
-  RuleWidthPx = 72;
+  // The short rule under the title (A.1), muted, aligned with the title and
+  // "Розділ N" on the left. ONE glyph: consecutive dashes leave gaps (side
+  // bearings). EB Garamond has the three-em dash U+2E3B; Georgia does not, so
+  // the fallback font gets em dashes, which Georgia draws joined.
+  RtfRule            = '\sa600\f0\fs22\cf3';
+  RuleTextGaramond   = #$2E3B;
+  RuleTextFallback   = #$2014#$2014;
+
+function RuleTextFor(const Theme: TReaderTheme): string;
 
 implementation
 
@@ -97,8 +103,6 @@ uses
   System.Generics.Defaults;
 
 const
-  TwipsPerPx = 15;
-
   // Fixed colour table (R6, R4-09): \cf1 text, \cf2 marker, \cf3 muted,
   // \cf4 epigraph, \cf5/\cf6 hit backgrounds (\highlight5/6), \cf7 heading.
   RtfColorTable =
@@ -201,14 +205,23 @@ begin
 end;
 
 // Under the title: "Розділ N" and the rule.
-procedure WriteLabelAndRule(W: TRtfWriter; const ChapterLabel: string);
-var
-  Indent: Integer;
+function RuleTextFor(const Theme: TReaderTheme): string;
+begin
+  if SameText(Theme.TextFont, TextFontName) then
+    Result := RuleTextGaramond
+  else
+    Result := RuleTextFallback;
+end;
+
+procedure WriteLabelAndRule(W: TRtfWriter; const ChapterLabel: string; const Theme: TReaderTheme);
 begin
   W.BeginParagraph(RtfChapterLabel);
   W.Text(ChapterLabel);
-  Indent := ((TextColumnMax - RuleWidthPx) div 2) * TwipsPerPx;
-  W.BeginParagraph(Format('\qc\li%d\ri%d\sa600\brdrb\brdrs\brdrw10\brdrcf3\fs8', [Indent, Indent]));
+  // RichEdit keeps paragraph borders but does not draw them, so the rule is
+  // text. It is never empty: an empty last paragraph would be swallowed into
+  // RichEdit's own final mark and the count would be one short.
+  W.BeginParagraph(RtfRule);
+  W.Text(RuleTextFor(Theme));
 end;
 
 // Normalised highlights: inside the text, sorted, without overlaps.
@@ -381,7 +394,7 @@ begin
     end
     else
       W.Text(Title);
-    WriteLabelAndRule(W, ChapterLabel);
+    WriteLabelAndRule(W, ChapterLabel, Theme);
 
     for I := First to High(Chapter.Paragraphs) do
     begin
@@ -455,7 +468,7 @@ begin
     WriteHeader(W, Theme);
     W.BeginParagraph(RtfChapterTitle);
     W.Text(BookTitle);
-    WriteLabelAndRule(W, ChapterLabel);
+    WriteLabelAndRule(W, ChapterLabel, Theme);
 
     for V in Chapter.Verses do
     begin
