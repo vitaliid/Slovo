@@ -1,0 +1,48 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{0BD6CAA8-1B30-487F-92EE-18B9CFF0C3C6}</ProjectGuid>
+    </PropertyGroup>
+    <ItemGroup>
+        <Projects Include="..\..\Slovo.dproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="delphi\SnowballCheck.dproj">
+            <Dependencies/>
+        </Projects>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Default.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Default.Personality/>
+        </BorlandProject>
+    </ProjectExtensions>
+    <Target Name="Slovo">
+        <MSBuild Projects="..\..\Slovo.dproj"/>
+    </Target>
+    <Target Name="Slovo:Clean">
+        <MSBuild Projects="..\..\Slovo.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="Slovo:Make">
+        <MSBuild Projects="..\..\Slovo.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="SnowballCheck">
+        <MSBuild Projects="delphi\SnowballCheck.dproj"/>
+    </Target>
+    <Target Name="SnowballCheck:Clean">
+        <MSBuild Projects="delphi\SnowballCheck.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="SnowballCheck:Make">
+        <MSBuild Projects="delphi\SnowballCheck.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Build">
+        <CallTarget Targets="Slovo;SnowballCheck"/>
+    </Target>
+    <Target Name="Clean">
+        <CallTarget Targets="Slovo:Clean;SnowballCheck:Clean"/>
+    </Target>
+    <Target Name="Make">
+        <CallTarget Targets="Slovo:Make;SnowballCheck:Make"/>
+    </Target>
+    <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
+</Project>
