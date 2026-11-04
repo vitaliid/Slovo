@@ -31,6 +31,7 @@ uses
   Presentation.MainViewModel in '..\Presentation\Presentation.MainViewModel.pas',
   Presentation.Theme in '..\Presentation\Presentation.Theme.pas',
   Presentation.ChapterRtf in '..\Presentation\Presentation.ChapterRtf.pas',
+  Shell.RichEdit in '..\Vcl\Shell.RichEdit.pas',
   Slovo.TestSupport in 'Slovo.TestSupport.pas',
   Core.Domain.Tests in 'Core.Domain.Tests.pas',
   Core.Catalog.Tests in 'Core.Catalog.Tests.pas',
@@ -40,7 +41,8 @@ uses
   Infra.Fts5SearchIndex.Tests in 'Infra.Fts5SearchIndex.Tests.pas',
   Infra.LoggerAndSettings.Tests in 'Infra.LoggerAndSettings.Tests.pas',
   Presentation.MainViewModel.Tests in 'Presentation.MainViewModel.Tests.pas',
-  Presentation.ChapterRtf.Tests in 'Presentation.ChapterRtf.Tests.pas';
+  Presentation.ChapterRtf.Tests in 'Presentation.ChapterRtf.Tests.pas',
+  Shell.RichEdit.Tests in 'Shell.RichEdit.Tests.pas';
 
 var
   Runner: ITestRunner;

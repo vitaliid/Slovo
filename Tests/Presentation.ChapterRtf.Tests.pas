@@ -41,6 +41,15 @@ type
     [Test] procedure Where_IdentifiesTheChapter;
   end;
 
+// Fixtures shared with Shell.RichEdit.Tests, which feeds the same chapters to
+// the real RichEdit.
+function Hl(Start, Len: Integer): TSearchHighlight;
+function Hit(Index: Integer; const Highlights: TArray<TSearchHighlight>): TParagraphHit;
+function SampleChapter: TChapterContent;
+function SampleBibleChapter: TBibleChapterContent;
+function Theme: TReaderTheme;
+function Visible(const S: string): string;     // the length-preserving replacement
+
 implementation
 
 type
