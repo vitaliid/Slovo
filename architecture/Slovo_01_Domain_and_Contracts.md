@@ -40,7 +40,7 @@ graph TD
     end
 
     subgraph Infra["Infrastructure — адаптери"]
-        LIB["Infra.SQLite.Library<br/>каталог + глави"]
+        LIB["Infra.SQLite.LibraryReader<br/>каталог + глави"]
         LDB["Infra.SQLite.LibraryDatabase<br/>одна конекція на все"]
         HI["Infra.Search.Fts5SearchIndex<br/>точні + стемовані таблиці"]
         LOG["Infra.Logging.FileLogger"]
@@ -622,7 +622,7 @@ end;
 | Клас | Реалізує | Джерело даних |
 |---|---|---|
 | `Infra.SQLite.LibraryDatabase` | *(внутрішній)* | Одна read-only конекція до `library.db` на весь сеанс (C-02, C-21); відкриття у фазі 0 з UTF-8 шляхом, перевірка `Meta.SchemaVersion` і токенізатора стемованих таблиць (R6) |
-| `Infra.SQLite.Library` | `ILibrary` | `LoadCatalog` — три запити; `GetChapterContent` — `Paragraphs` + `Spans`; `GetBibleChapter` — `Verses` |
+| `Infra.SQLite.LibraryReader` | `ILibrary` | `LoadCatalog` — три запити; `GetChapterContent` — `Paragraphs` + `Spans`; `GetBibleChapter` — `Verses` |
 | `Infra.Search.Fts5SearchIndex` | `ISearchIndex` | Тонка обгортка над точними (`ParagraphsFTS`/`VersesFTS`) і стемованими (`*Stem_<lang>`) FTS5-таблицями на спільній конекції; мови модулів — з каталогу (B-31); деталі — View 2 |
 | `Infra.Settings.IniSettings` | `ISettings` | `data\settings.ini` через `TMemIniFile` (View 4, C.2) |
 

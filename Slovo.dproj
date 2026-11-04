@@ -36,9 +36,9 @@
         <Icon_MainIcon>Slovo_Icon.ico</Icon_MainIcon>
         <DCC_ExeOutput>.\$(Platform)\$(Config)</DCC_ExeOutput>
         <DCC_DcuOutput>.\$(Platform)\$(Config)</DCC_DcuOutput>
-        <PostBuildEvent><![CDATA[rem Slovo loads sqlite3.dll from the directory of the executable,
-rem so the vendored library has to sit next to the freshly built EXE.
-copy /Y "$(PROJECTDIR)\lib\sqlite3\$(Platform)\sqlite3.dll" "$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll"
+        <PostBuildEvent><![CDATA[rem Slovo loads sqlite3.dll from the directory of the executable. It is our own
+rem build with the Snowball tokenizer (B-31), produced by tools\sqlite\build.sh.
+copy /Y "$(PROJECTDIR)\tools\sqlite\out\sqlite3.dll" "$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll"
 rem Interface text is read from lang\*.lang next to the EXE at run time,
 rem so the translation files have to travel with it as well.
 xcopy /Y /I /Q "$(PROJECTDIR)\lang\*.lang" "$(PROJECTDIR)\$(Platform)\$(Config)\lang\"]]></PostBuildEvent>
@@ -88,13 +88,13 @@ xcopy /Y /I /Q "$(PROJECTDIR)\lang\*.lang" "$(PROJECTDIR)\$(Platform)\$(Config)\
                         <Overwrite>true</Overwrite>
                     </Platform>
                 </DeployFile>
-                <DeployFile LocalName="lib\sqlite3\Win64\sqlite3.dll" Configuration="Debug" Class="DependencyModule">
+                <DeployFile LocalName="tools\sqlite\out\sqlite3.dll" Configuration="Debug" Class="DependencyModule">
                     <Platform Name="Win64">
                         <RemoteName>sqlite3.dll</RemoteName>
                         <Overwrite>true</Overwrite>
                     </Platform>
                 </DeployFile>
-                <DeployFile LocalName="lib\sqlite3\Win64\sqlite3.dll" Configuration="Release" Class="DependencyModule">
+                <DeployFile LocalName="tools\sqlite\out\sqlite3.dll" Configuration="Release" Class="DependencyModule">
                     <Platform Name="Win64">
                         <RemoteName>sqlite3.dll</RemoteName>
                         <Overwrite>true</Overwrite>

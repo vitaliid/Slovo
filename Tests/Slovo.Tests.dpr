@@ -1,8 +1,12 @@
 ﻿program Slovo.Tests;
 
 { DUnitX console runner for Slovo (Slovo_03, Part C).
-  Lists Core units by path and nothing from Infrastructure\ or Presentation\:
-  if Core ever uses one of those, this project stops compiling (A-01).
+  Presentation\ is not listed, so Core or Infrastructure using it stops this
+  project from compiling. Core's own boundary (no Vcl, Winapi, SQLite,
+  Infrastructure) is checked by Core.Boundary.Tests (A-01).
+
+  Needs sqlite3.dll next to the EXE - the post-build event copies the custom
+  build from tools\sqlite\out. Fixtures are read from Tests\fixtures.
 
   Run:  Slovo.Tests.exe --exitbehavior:Continue   (no "press Enter" at the end) }
 
@@ -16,9 +20,16 @@ uses
   Core.Domain in '..\Core\Core.Domain.pas',
   Core.Catalog in '..\Core\Core.Catalog.pas',
   Core.Contracts in '..\Core\Core.Contracts.pas',
+  Infrastructure.SQLite3.Api in '..\Infrastructure\Infrastructure.SQLite3.Api.pas',
+  Infrastructure.SQLite3.Database in '..\Infrastructure\Infrastructure.SQLite3.Database.pas',
+  Infra.SQLite.LibraryDatabase in '..\Infrastructure\Infra.SQLite.LibraryDatabase.pas',
+  Infra.SQLite.LibraryReader in '..\Infrastructure\Infra.SQLite.LibraryReader.pas',
+  Slovo.TestSupport in 'Slovo.TestSupport.pas',
   Core.Domain.Tests in 'Core.Domain.Tests.pas',
   Core.Catalog.Tests in 'Core.Catalog.Tests.pas',
-  Core.Boundary.Tests in 'Core.Boundary.Tests.pas';
+  Core.Boundary.Tests in 'Core.Boundary.Tests.pas',
+  Infra.LibraryDatabase.Tests in 'Infra.LibraryDatabase.Tests.pas',
+  Infra.LibraryReader.Tests in 'Infra.LibraryReader.Tests.pas';
 
 var
   Runner: ITestRunner;

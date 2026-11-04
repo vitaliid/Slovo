@@ -3,9 +3,9 @@
 { Hexagonal boundary (A-01, Slovo_03 Part C): no unit in Core\ may use the VCL,
   Windows API, SQLite, Infrastructure or Presentation.
 
-  Infrastructure.* and Presentation.* are already caught by the compiler - the
-  test project does not know where they live. Vcl.* and Winapi.* are always on
-  the library path, so this test reads the uses clauses of Core\*.pas instead. }
+  The test project compiles Infrastructure too, and Vcl.*/Winapi.* are always on
+  the library path, so the compiler cannot catch this - the test reads the uses
+  clauses of Core\*.pas instead. }
 
 interface
 

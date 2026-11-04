@@ -532,7 +532,7 @@ end;
 | Клас | Реалізує | Джерело даних |
 |---|---|---|
 | `Infra.SQLite.LibraryDatabase` | *(внутрішній)* | Одна read-only конекція до `library.db` на весь сеанс: відкриття у фазі 0 з pragma вище й UTF-8 шляхом, перевірка `Meta.SchemaVersion` і стемованих таблиць (токенізатор), володіння хендлом |
-| `Infra.SQLite.Library` | `ILibrary` | `LoadCatalog` → `TLibraryCatalog`; `GetChapterContent` — `Paragraphs` + `Spans`; `GetBibleChapter` — `Verses` |
+| `Infra.SQLite.LibraryReader` (не `…Library`: `library` — зарезервоване слово Delphi, навіть у крапковому імені модуля) | `ILibrary` | `LoadCatalog` → `TLibraryCatalog`; `GetChapterContent` — `Paragraphs` + `Spans`; `GetBibleChapter` — `Verses` |
 | `Infra.Search.Fts5SearchIndex` | `ISearchIndex` | Точні й стемовані FTS-таблиці; вибір таблиць за `WordForms` і мовами з каталогу; `IN (…)` за `ModuleIds`; `FindInChapter`/`FindInBibleChapter` через `highlight()` |
 | `Infra.Settings.IniSettings` | `ISettings` | `data\settings.ini` (View 4, C.2) — не SQLite |
 
