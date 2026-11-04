@@ -29,6 +29,12 @@
         <CfgParent>Base</CfgParent>
         <Base>true</Base>
     </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Cfg_2)'=='true') or '$(Cfg_2_Win64)'!=''">
+        <Cfg_2_Win64>true</Cfg_2_Win64>
+        <CfgParent>Cfg_2</CfgParent>
+        <Cfg_2>true</Cfg_2>
+        <Base>true</Base>
+    </PropertyGroup>
     <PropertyGroup Condition="'$(Base)'!=''">
         <DCC_E>false</DCC_E>
         <DCC_F>false</DCC_F>
@@ -61,6 +67,9 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <DCC_GenerateStackFrames>true</DCC_GenerateStackFrames>
         <DCC_RangeChecking>true</DCC_RangeChecking>
         <DCC_IntegerOverflowCheck>true</DCC_IntegerOverflowCheck>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_2_Win64)'!=''">
+        <Debugger_RunParams>-exitbehavior:Pause</Debugger_RunParams>
     </PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)">
@@ -119,7 +128,7 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
-        <PostBuildEvent>copy /Y &quot;$(PROJECTDIR)\..\tools\sqlite\out\sqlite3.dll&quot; &quot;$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll&quot;</PostBuildEvent>
+        <PostBuildEvent>copy /Y &quot;$(PROJECTDIR)\..\tools\sqlite\out\sqlite3.dll&quot; &quot;$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll&quot;</PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='Win64'">
@@ -127,7 +136,7 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
-        <PostBuildEvent>copy /Y &quot;$(PROJECTDIR)\..\tools\sqlite\out\sqlite3.dll&quot; &quot;$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll&quot;</PostBuildEvent>
+        <PostBuildEvent>copy /Y &quot;$(PROJECTDIR)\..\tools\sqlite\out\sqlite3.dll&quot; &quot;$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll&quot;</PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='Win32'">
@@ -135,7 +144,7 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
-        <PostBuildEvent>copy /Y &quot;$(PROJECTDIR)\..\tools\sqlite\out\sqlite3.dll&quot; &quot;$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll&quot;</PostBuildEvent>
+        <PostBuildEvent>copy /Y &quot;$(PROJECTDIR)\..\tools\sqlite\out\sqlite3.dll&quot; &quot;$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll&quot;</PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='Win64'">
@@ -143,7 +152,7 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <PreBuildEventIgnoreExitCode>False</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
-        <PostBuildEvent>copy /Y &quot;$(PROJECTDIR)\..\tools\sqlite\out\sqlite3.dll&quot; &quot;$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll&quot;</PostBuildEvent>
+        <PostBuildEvent>copy /Y &quot;$(PROJECTDIR)\..\tools\sqlite\out\sqlite3.dll&quot; &quot;$(PROJECTDIR)\$(Platform)\$(Config)\sqlite3.dll&quot;</PostBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
 </Project>
