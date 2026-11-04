@@ -22,6 +22,7 @@ uses
   Winapi.Windows,
   Winapi.Messages,
   Vcl.Controls,
+  Vcl.Graphics,
   Vcl.Forms,
   Vcl.Menus,
   Vcl.StdCtrls,
@@ -33,7 +34,8 @@ uses
   Presentation.MainViewModel,
   Presentation.Theme,
   Presentation.ChapterRtf,
-  Presentation.Views;
+  Presentation.Views,
+  Shell.LibraryTree;
 
 type
   // What the temporary list shows in each row and what a double click opens.
@@ -113,6 +115,15 @@ type
     FDoc: TChapterRtf;                   // the map of what the reader shows (E-13 later)
     FReaderWndProc: TWndMethod;
 
+    // Left panel (A.3), created in code: the tree is a VST, built at run time.
+    FLeftPanel: TPanel;
+    FLibraryTitle: TLabel;
+    FLibraryTree: TLibraryTree;
+    FCheckedCount: Integer;              // "Відмічені книги · N" is counted by the form (R4-42)
+    procedure CreateLeftPanel;
+    procedure LibraryNodeActivated(const Node: TLibraryNode);
+    procedure LibraryNodeChecked(const Node: TLibraryNode; Checked: Boolean);
+
     procedure ApplyLocalization;
     procedure UpdateStatus;
     procedure ShowView(View: TReaderView);
@@ -132,6 +143,7 @@ type
     procedure HandleException(Sender: TObject; E: Exception);
     procedure RestoreGeometry;
   public
+    destructor Destroy; override;
     // IMainView
     procedure Bind(ViewModel: TMainViewModel; const Settings: ISettings; const Theme: TReaderTheme);
     procedure Unbind;
@@ -196,6 +208,36 @@ begin
   // E-11: Ctrl+wheel is ours, so msftedit's own zoom never drifts from the setting.
   FReaderWndProc := redReader.WindowProc;
   redReader.WindowProc := ReaderWndProc;
+
+  CreateLeftPanel;
+end;
+
+destructor TMainForm.Destroy;
+begin
+  FLibraryTree.Free;                     // the VST itself is owned by the form
+  inherited;
+end;
+
+procedure TMainForm.CreateLeftPanel;
+begin
+  FLeftPanel := TPanel.Create(Self);
+  FLeftPanel.Parent := Self;
+  FLeftPanel.Align := alLeft;
+  FLeftPanel.Width := ScaleValue(LeftPanelWidth);
+  FLeftPanel.BevelOuter := bvNone;
+  FLeftPanel.ParentBackground := False;
+  FLeftPanel.Color := ColorBackground;
+
+  FLibraryTitle := TLabel.Create(Self);
+  FLibraryTitle.Parent := FLeftPanel;
+  FLibraryTitle.Align := alTop;
+  FLibraryTitle.AlignWithMargins := True;
+  FLibraryTitle.Margins.SetBounds(ScaleValue(12), ScaleValue(16), ScaleValue(12), ScaleValue(8));
+  FLibraryTitle.Font.Style := [fsBold];
+
+  FLibraryTree := TLibraryTree.Create(Self, FLeftPanel);
+  FLibraryTree.OnActivate := LibraryNodeActivated;
+  FLibraryTree.OnCheck := LibraryNodeChecked;
 end;
 
 { IMainView }
@@ -207,7 +249,12 @@ begin
   FSettings := Settings;
   FTheme := Theme;
 
-  FOnLibraryChanged := procedure(Nodes: TArray<TLibraryNode>) begin end;    // the tree - next step
+  FOnLibraryChanged := procedure(Nodes: TArray<TLibraryNode>)
+    begin
+      FLibraryTree.Build(Nodes);
+      FCheckedCount := FLibraryTree.CheckedCount;
+      UpdateStatus;
+    end;
   FOnViewChanged := procedure(View: TReaderView) begin ShowView(View); end;
   FOnChapterLoaded := procedure(Args: TChapterLoadedArgs) begin RenderChapter(Args); end;
   FOnBibleChapterLoaded := procedure(Args: TBibleChapterLoadedArgs) begin RenderBibleChapter(Args); end;
@@ -223,6 +270,7 @@ begin
 
   Application.OnException := HandleException;
   Font.Name := FTheme.UiFont;
+  FLibraryTree.ApplyFont(FTheme.UiFont);
   lstItems.Font.Name := FTheme.TextFont;
   FZoomStep := EnsureRange(FSettings.GetZoomStep, MinZoomStep, MaxZoomStep);
   PrepareReader(redReader);
@@ -292,6 +340,8 @@ begin
   miLanguageRussian.Checked := Localizer.Language = UILanguageCodes[1];
   miLanguageEnglish.Checked := Localizer.Language = UILanguageCodes[2];
 
+  FLibraryTitle.Caption := L('library.title');
+  FLibraryTree.Invalidate;
   actPrevChapter.Caption := '‹  ' + L('read.prevChapter');
   actNextChapter.Caption := L('read.nextChapter') + '  ›';
   UpdateStatus;
@@ -299,8 +349,9 @@ end;
 
 procedure TMainForm.UpdateStatus;
 begin
-  lblStatus.Caption := Format('%s: %d  ·  %d %%', [L('library.title'),
-    Length(FViewModel.Catalog.Modules), Round(ZoomPx(FZoomStep) / BaseTextPx * 100)]);
+  lblStatus.Caption := Format('%s: %d  ·  %s  ·  %d %%', [L('library.title'),
+    Length(FViewModel.Catalog.Modules), L('search.scope.checked', [FCheckedCount]),
+    Round(ZoomPx(FZoomStep) / BaseTextPx * 100)]);
 end;
 
 { the text column (A.2) }
@@ -552,6 +603,51 @@ begin
     L('read.chapter', [Args.Content.Ref.ChapterNumber]), FTheme, Request), Args.Focus);
 end;
 
+{ the library tree (A.3) }
+
+procedure TMainForm.LibraryNodeActivated(const Node: TLibraryNode);
+var
+  Category: TBookCategory;
+  Book: TBookRef;
+  Chapter: TChapterRef;
+  BibleChapter: TBibleChapterRef;
+begin
+  Book.ModuleId := Node.ModuleId;
+  Book.BookCode := Node.BookCode;
+  case Node.Kind of
+    lnCategory:
+      for Category := Low(TBookCategory) to High(TBookCategory) do
+        if CategoryKeys[Category] = Node.CaptionKey then
+          FViewModel.ShowShelf(Category);
+    lnModule:           FViewModel.ShowToc(Node.ModuleId);
+    lnBibleTranslation: FViewModel.ShowShelf(Node.ModuleId);
+    lnBibleBook:        FViewModel.ShowToc(Book);
+    lnChapter:
+      if Node.BookCode <> '' then
+      begin
+        BibleChapter.Book := Book;
+        BibleChapter.ChapterNumber := Node.ChapterOrder;
+        FViewModel.OpenChapter(BibleChapter);
+      end
+      else
+      begin
+        Chapter.ModuleId := Node.ModuleId;
+        Chapter.ChapterOrder := Node.ChapterOrder;
+        FViewModel.OpenChapter(Chapter);
+      end;
+  end;                                   // lnSeries: the tree only expands it
+end;
+
+procedure TMainForm.LibraryNodeChecked(const Node: TLibraryNode; Checked: Boolean);
+begin
+  FViewModel.SetChecked(Node.ModuleId, Checked);
+  if Checked then
+    Inc(FCheckedCount)
+  else
+    Dec(FCheckedCount);
+  UpdateStatus;
+end;
+
 procedure TMainForm.LoadDocument(const Doc: TChapterRtf; Focus: Integer);
 var
   StreamError, Actual: Integer;
@@ -577,6 +673,7 @@ begin
   else
     ScrollToChar(redReader, 0);
   UpdateCrumbs;
+  FLibraryTree.SetActive(FViewModel.Position);
 end;
 
 { zoom (E-11) }
@@ -680,6 +777,9 @@ end;
 procedure TMainForm.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
 begin
   if FViewModel = nil then
+    Exit;
+  // A.6: the tree keeps its own arrows and Backspace (expand, collapse, parent).
+  if ActiveControl = FLibraryTree.Control then
     Exit;
   case Key of
     vkLeft, vkRight:
