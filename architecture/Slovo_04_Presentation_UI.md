@@ -516,28 +516,39 @@ type
   end;
 
   THighlightRequest = record     // що підсвітити (E-08) — готові збіги з FTS
-    Hits: TArray<TParagraphHit>; // для Біблії — TVerseHit, той самий принцип
+    Hits: TArray<TParagraphHit>;
     Focus: Integer;              // індекс у Hits поточного абзацу; −1 — немає
+    class function None: THighlightRequest; static;
+  end;
+
+  TVerseHighlightRequest = record  // для Біблії — той самий принцип
+    Hits: TArray<TVerseHit>;
+    Focus: Integer;
+    class function None: TVerseHighlightRequest; static;
   end;
 
   TChapterRtf = record
     Rtf: string;
     ExpectedChars: Integer;      // видимі символи: текст, маркери, по 1 на кожен \par
     Paragraphs: TArray<TParagraphRange>;
-    HitStarts: TArray<Integer>;  // StartChar першого збігу кожного абзацу з Hits — для прокрутки
+    HitStarts: TArray<Integer>;  // позиція першого збігу кожного Hits[i] — для прокрутки; −1 — не в цій главі
     Where: string;               // 'PP:3' / 'ohienko-uk:GEN:3' — для рядка логу
   end;
 
   TChapterRtfBuilder = class
   public
-    class function Build(const Chapter: TChapterContent; const Theme: TReaderTheme;
-      const Highlight: THighlightRequest): TChapterRtf; overload;
-    class function Build(const Chapter: TBibleChapterContent; const BookTitle: string;
+    // ChapterLabel — уже локалізоване «Розділ N»: форма передає L('read.chapter', [N]),
+    // тож білдер не залежить від глобального локалізатора й лишається без стану.
+    class function Build(const Chapter: TChapterContent; const ChapterLabel: string;
       const Theme: TReaderTheme; const Highlight: THighlightRequest): TChapterRtf; overload;
+    class function Build(const Chapter: TBibleChapterContent; const BookTitle, ChapterLabel: string;
+      const Theme: TReaderTheme; const Highlight: TVerseHighlightRequest): TChapterRtf; overload;
   end;
 ```
 
 **Мапа символів (R6, R4-11).** Маркера посеред абзацу немає, тож позиція збігу в RichEdit = `StartChar + Offset` без поправок. `Text` перед записом у RTF проходить одну заміну, що **зберігає довжину**: CR, LF і TAB → пробіл; `\`, `{`, `}` екрануються (на кількість символів у контролі не впливає). Префікс маркера — до `StartChar`, тому він ніколи не потрапляє в підсвітку й легко вирізається для «Копіювати з посиланням».
+
+**Абзаци розділяються `\par`, після останнього його немає**: RichEdit тримає власну кінцеву позначку абзацу й не рахує її, тож `ExpectedChars` = текст + маркери + кількість роздільників. Кожен абзац починається з `\pard\plain` — курсив епіграфа чи жирний підзаголовок не перетікають у наступний абзац. Заголовок береться з першого абзацу `pkChapterTitle` (він же входить у мапу й може мати збіги), а якщо такого немає — з `TChapterContent.Title` (тоді в мапі його немає). Підсвітки чистяться перед записом: поза текстом — обрізаються, порожні й ті, що перекриваються, — відкидаються. Перевірка: `Presentation.ChapterRtf.Tests` читає RTF назад так, як це робить RichEdit, і звіряє мапу з реальними позиціями.
 
 **Заголовок документа:** `{\rtf1\ansi\deff0\uc1` + `\fonttbl` + `\colortbl` нижче. Кирилиця й усе поза ASCII — `\uN?` (`\uc1` — один запасний символ; для N > 32767 — від'ємне N), кодова сторінка не використовується (R6, R4-16).
 
@@ -552,7 +563,7 @@ type
 
 | `Kind` | RTF |
 |---|---|
-| `pkChapterTitle` | **перший блок документа:** заголовок `\pard\f0\fs69\cf7` (46 px); під ним «Розділ N» `\fs26\i\cf3` (17 px); далі лінія — короткий центрований абзац з нижньою рамкою `\brdrb\brdrs\brdrw10\brdrcf3`. Для Біблії — назва книги (`BookTitle`) і «Розділ N» |
+| `pkChapterTitle` | **перший блок документа:** заголовок `\pard\f0\fs69\cf7` (46 px); під ним «Розділ N» `\fs26\i\cf3` (17 px); далі лінія — порожній центрований абзац з нижньою рамкою `\brdrb\brdrs\brdrw10\brdrcf3`, звужений однаковими `\li`/`\ri` до `RuleWidthPx` = 72 px у колонці `TextColumnMax`. Для Біблії — назва книги (`BookTitle`) і «Розділ N» |
 | `pkSubChapterTitle` | `\pard\sb480\sa240\f0\fs42\cf1` (28 px) — менший за заголовок глави, у тексті |
 | `pkEpigraph` | `\pard\li600\ri600\sa660\f0\fs29\i\cf4` (19 px; E-10 — одним блоком) |
 | `pkSectionHeading` | `\pard\sb480\sa240\f0\fs31\b\cf1` — справжній Bold-файл (E-04) |

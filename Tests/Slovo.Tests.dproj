@@ -87,6 +87,8 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <DCCReference Include="..\Infrastructure\Infra.Logging.FileLogger.pas"/>
         <DCCReference Include="..\Infrastructure\Infra.Settings.IniSettings.pas"/>
         <DCCReference Include="..\Presentation\Presentation.MainViewModel.pas"/>
+        <DCCReference Include="..\Presentation\Presentation.Theme.pas"/>
+        <DCCReference Include="..\Presentation\Presentation.ChapterRtf.pas"/>
         <DCCReference Include="Slovo.TestSupport.pas"/>
         <DCCReference Include="Core.Domain.Tests.pas"/>
         <DCCReference Include="Core.Catalog.Tests.pas"/>
@@ -96,6 +98,7 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <DCCReference Include="Infra.Fts5SearchIndex.Tests.pas"/>
         <DCCReference Include="Infra.LoggerAndSettings.Tests.pas"/>
         <DCCReference Include="Presentation.MainViewModel.Tests.pas"/>
+        <DCCReference Include="Presentation.ChapterRtf.Tests.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

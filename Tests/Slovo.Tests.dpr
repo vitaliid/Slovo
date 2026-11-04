@@ -29,6 +29,8 @@ uses
   Infra.Logging.FileLogger in '..\Infrastructure\Infra.Logging.FileLogger.pas',
   Infra.Settings.IniSettings in '..\Infrastructure\Infra.Settings.IniSettings.pas',
   Presentation.MainViewModel in '..\Presentation\Presentation.MainViewModel.pas',
+  Presentation.Theme in '..\Presentation\Presentation.Theme.pas',
+  Presentation.ChapterRtf in '..\Presentation\Presentation.ChapterRtf.pas',
   Slovo.TestSupport in 'Slovo.TestSupport.pas',
   Core.Domain.Tests in 'Core.Domain.Tests.pas',
   Core.Catalog.Tests in 'Core.Catalog.Tests.pas',
@@ -37,7 +39,8 @@ uses
   Infra.LibraryReader.Tests in 'Infra.LibraryReader.Tests.pas',
   Infra.Fts5SearchIndex.Tests in 'Infra.Fts5SearchIndex.Tests.pas',
   Infra.LoggerAndSettings.Tests in 'Infra.LoggerAndSettings.Tests.pas',
-  Presentation.MainViewModel.Tests in 'Presentation.MainViewModel.Tests.pas';
+  Presentation.MainViewModel.Tests in 'Presentation.MainViewModel.Tests.pas',
+  Presentation.ChapterRtf.Tests in 'Presentation.ChapterRtf.Tests.pas';
 
 var
   Runner: ITestRunner;
