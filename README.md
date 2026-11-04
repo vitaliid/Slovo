@@ -11,12 +11,14 @@ good and fix what did not.
 
 ## Status
 
-**Skeleton only.** The repository currently contains an empty VCL application:
-a main window with a `File → Exit` menu, a `Help → SQLite diagnostics` item, and
-the SQLite binding those diagnostics exercise. No reader, no search, no content
-modules yet. UI design has not started.
+**Early development (Sprint 2).** Core, the SQLite storage and FTS5 search, the
+logger, settings, localization, the ViewModel and the composition root are in
+place and covered by tests (`Tests\Slovo.Tests.dproj`). The main window is still
+a temporary shell that proves the start-up chain; the real reading interface is
+being built now.
 
-Do not expect a working program if you build this today.
+The architecture is described in [`architecture\`](architecture/Slovo_00_README.md)
+- that folder is the source of truth for design decisions.
 
 ## Why a rewrite
 
@@ -43,6 +45,10 @@ first milestone.
 ## Requirements
 
 - **Delphi 13** (Community Edition is sufficient — see licensing note below)
+- **Virtual TreeView 8.3** (JAM Software, MPL 1.1) — install from
+  **Tools → GetIt Package Manager** (search "Virtual"). The library tree, shelf,
+  table of contents and search results are built on `TVirtualStringTree`
+  (Slovo_04 E-02); the project does not build without it.
 - **Windows 10 or newer, x64**
 
 VCL, 64-bit only. There is no 32-bit build and none is planned.
@@ -79,27 +85,27 @@ is shown in the interface and the miss is written once to the debug log. A
 half-translated interface stays usable and says exactly what is missing.
 
 Adding a language means copying `lang\en.lang`, translating the values, and
-adding its code to `UILanguageCodes` in `Presentation.Strings` together with a
-menu item for it.
+adding its code to `UILanguageCodes` in `Presentation.Localization` together
+with a menu item for it.
 
-The `.dfm` files hold English placeholders that exist only for the form
-designer and are overwritten at run time by `TMainForm.ApplyStrings`. Adding a
-caption means adding a key to the three `.lang` files and a line to that
-method - never a translated literal in a `.dfm`.
+The `.dfm` files hold no captions at all; `TMainForm.ApplyLocalization` sets
+every one at run time (Slovo_04 E-05). Adding a caption means adding a key to
+the three `.lang` files and a line to that method - never a literal in a `.dfm`.
 
 Technical text is not translated: error messages, exceptions and the SQLite
 diagnostics report are English and stay as resourcestrings next to the code
 that raises them.
 
-The chosen language is not remembered between runs yet - the application starts
-in Ukrainian every time. That waits for a settings store.
+The chosen language is remembered in `data\settings.ini` next to the EXE and is
+applied before the first message of the program, including start-up errors.
 
 ## SQLite
 
 Storage and full-text search are built on SQLite with the FTS5 extension. The
-library lives in `lib/sqlite3/Win64/sqlite3.dll` (see
-[`lib/sqlite3/README.md`](lib/sqlite3/README.md) for version and build options)
-and is copied next to the freshly built EXE by a post-build event.
+DLL is our own build with the Snowball stemmers registered for FTS5 (word-form
+search, Slovo_02 B-31): sources and the build script are in `tools/sqlite/`,
+the result in `tools/sqlite/out/sqlite3.dll`, which a post-build event copies
+next to the freshly built EXE.
 
 It is bound at run time in `Infrastructure.SQLite3.Api` — `LoadLibraryEx` with a
 full, explicit path — rather than statically imported or reached through
