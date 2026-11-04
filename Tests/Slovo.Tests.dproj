@@ -78,6 +78,7 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <DCCReference Include="..\Core\Core.Domain.pas"/>
         <DCCReference Include="..\Core\Core.Catalog.pas"/>
         <DCCReference Include="..\Core\Core.Contracts.pas"/>
+        <DCCReference Include="..\Core\Core.Events.pas"/>
         <DCCReference Include="..\Infrastructure\Infrastructure.SQLite3.Api.pas"/>
         <DCCReference Include="..\Infrastructure\Infrastructure.SQLite3.Database.pas"/>
         <DCCReference Include="..\Infrastructure\Infra.SQLite.LibraryDatabase.pas"/>
@@ -85,6 +86,7 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <DCCReference Include="..\Infrastructure\Infra.Search.Fts5SearchIndex.pas"/>
         <DCCReference Include="..\Infrastructure\Infra.Logging.FileLogger.pas"/>
         <DCCReference Include="..\Infrastructure\Infra.Settings.IniSettings.pas"/>
+        <DCCReference Include="..\Presentation\Presentation.MainViewModel.pas"/>
         <DCCReference Include="Slovo.TestSupport.pas"/>
         <DCCReference Include="Core.Domain.Tests.pas"/>
         <DCCReference Include="Core.Catalog.Tests.pas"/>
@@ -93,6 +95,7 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <DCCReference Include="Infra.LibraryReader.Tests.pas"/>
         <DCCReference Include="Infra.Fts5SearchIndex.Tests.pas"/>
         <DCCReference Include="Infra.LoggerAndSettings.Tests.pas"/>
+        <DCCReference Include="Presentation.MainViewModel.Tests.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

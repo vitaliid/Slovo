@@ -1,9 +1,9 @@
 ﻿program Slovo.Tests;
 
 { DUnitX console runner for Slovo (Slovo_03, Part C).
-  Presentation\ is not listed, so Core or Infrastructure using it stops this
-  project from compiling. Core's own boundary (no Vcl, Winapi, SQLite,
-  Infrastructure) is checked by Core.Boundary.Tests (A-01).
+  From Presentation\ only the VCL-free ViewModel is listed, never the form.
+  Core's and the ViewModel's boundaries (no Vcl, Winapi, SQLite,
+  Infrastructure) are checked by Core.Boundary.Tests (A-01).
 
   Needs sqlite3.dll next to the EXE - the post-build event copies the custom
   build from tools\sqlite\out. Fixtures are read from Tests\fixtures.
@@ -20,6 +20,7 @@ uses
   Core.Domain in '..\Core\Core.Domain.pas',
   Core.Catalog in '..\Core\Core.Catalog.pas',
   Core.Contracts in '..\Core\Core.Contracts.pas',
+  Core.Events in '..\Core\Core.Events.pas',
   Infrastructure.SQLite3.Api in '..\Infrastructure\Infrastructure.SQLite3.Api.pas',
   Infrastructure.SQLite3.Database in '..\Infrastructure\Infrastructure.SQLite3.Database.pas',
   Infra.SQLite.LibraryDatabase in '..\Infrastructure\Infra.SQLite.LibraryDatabase.pas',
@@ -27,6 +28,7 @@ uses
   Infra.Search.Fts5SearchIndex in '..\Infrastructure\Infra.Search.Fts5SearchIndex.pas',
   Infra.Logging.FileLogger in '..\Infrastructure\Infra.Logging.FileLogger.pas',
   Infra.Settings.IniSettings in '..\Infrastructure\Infra.Settings.IniSettings.pas',
+  Presentation.MainViewModel in '..\Presentation\Presentation.MainViewModel.pas',
   Slovo.TestSupport in 'Slovo.TestSupport.pas',
   Core.Domain.Tests in 'Core.Domain.Tests.pas',
   Core.Catalog.Tests in 'Core.Catalog.Tests.pas',
@@ -34,7 +36,8 @@ uses
   Infra.LibraryDatabase.Tests in 'Infra.LibraryDatabase.Tests.pas',
   Infra.LibraryReader.Tests in 'Infra.LibraryReader.Tests.pas',
   Infra.Fts5SearchIndex.Tests in 'Infra.Fts5SearchIndex.Tests.pas',
-  Infra.LoggerAndSettings.Tests in 'Infra.LoggerAndSettings.Tests.pas';
+  Infra.LoggerAndSettings.Tests in 'Infra.LoggerAndSettings.Tests.pas',
+  Presentation.MainViewModel.Tests in 'Presentation.MainViewModel.Tests.pas';
 
 var
   Runner: ITestRunner;

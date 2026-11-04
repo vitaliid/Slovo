@@ -17,6 +17,7 @@ type
   TCoreBoundaryTests = class
   public
     [Test] procedure CoreUnits_UseNoForbiddenUnits;
+    [Test] procedure ViewModel_UsesNoVclOrInfrastructure;
   end;
 
 implementation
@@ -48,6 +49,14 @@ begin
   Result := '';
 end;
 
+// Folder of the repository (the one that holds Core\).
+function RepoDir: string;
+begin
+  Result := FindCoreDir;
+  if Result <> '' then
+    Result := TPath.GetDirectoryName(Result);
+end;
+
 function StripComments(const Source: string): string;
 begin
   Result := TRegEx.Replace(Source, '\{[^}]*\}', ' ');
@@ -55,20 +64,16 @@ begin
   Result := TRegEx.Replace(Result, '//[^\r\n]*', ' ');
 end;
 
-procedure TCoreBoundaryTests.CoreUnits_UseNoForbiddenUnits;
+// Uses-clause entries of the given files that start with a forbidden prefix.
+function FindViolations(const Files: TArray<string>; const Forbidden: array of string): string;
 var
-  CoreDir, FileName, Source, UnitName, Lower, Violations: string;
+  FileName, Source, UnitName, Lower: string;
   Clause: TMatch;
-  Checked: Integer;
+  I: Integer;
 begin
-  CoreDir := FindCoreDir;
-  Assert.IsNotEmpty(CoreDir, 'Core folder not found above ' + ParamStr(0));
-
-  Violations := '';
-  Checked := 0;
-  for FileName in TDirectory.GetFiles(CoreDir, '*.pas', TSearchOption.soAllDirectories) do
+  Result := '';
+  for FileName in Files do
   begin
-    Inc(Checked);
     Source := StripComments(TFile.ReadAllText(FileName));
     for Clause in TRegEx.Matches(Source, '\buses\b([^;]*);', [roIgnoreCase]) do
       for UnitName in Clause.Groups[1].Value.Split([',']) do
@@ -77,17 +82,39 @@ begin
         // 'Foo in ''path''' -> 'foo'
         if Lower.Contains(' in ') then
           Lower := Lower.Substring(0, Lower.IndexOf(' in ')).Trim;
-        for var Prefix in ForbiddenPrefixes do
-          if Lower.StartsWith(Prefix) or Lower.Contains('sqlite') then
+        for I := Low(Forbidden) to High(Forbidden) do
+          if Lower.StartsWith(Forbidden[I]) or Lower.Contains('sqlite') then
           begin
-            Violations := Violations + sLineBreak + TPath.GetFileName(FileName) + ': ' + UnitName.Trim;
+            Result := Result + sLineBreak + TPath.GetFileName(FileName) + ': ' + UnitName.Trim;
             Break;
           end;
       end;
   end;
+end;
 
-  Assert.IsTrue(Checked > 0, 'No .pas files found in ' + CoreDir);
+procedure TCoreBoundaryTests.CoreUnits_UseNoForbiddenUnits;
+var
+  CoreDir, Violations: string;
+  Files: TArray<string>;
+begin
+  CoreDir := FindCoreDir;
+  Assert.IsNotEmpty(CoreDir, 'Core folder not found above ' + ParamStr(0));
+  Files := TDirectory.GetFiles(CoreDir, '*.pas', TSearchOption.soAllDirectories);
+  Assert.IsTrue(Length(Files) > 0, 'No .pas files found in ' + CoreDir);
+  Violations := FindViolations(Files, ForbiddenPrefixes);
   Assert.IsEmpty(Violations, 'Core uses forbidden units:' + Violations);
+end;
+
+// Slovo_04 C.1: the ViewModel compiles without Vcl.* and knows only Core.
+procedure TCoreBoundaryTests.ViewModel_UsesNoVclOrInfrastructure;
+var
+  FileName, Violations: string;
+begin
+  FileName := TPath.Combine(TPath.Combine(RepoDir, 'Presentation'), 'Presentation.MainViewModel.pas');
+  Assert.IsTrue(TFile.Exists(FileName), FileName);
+  Violations := FindViolations([FileName],
+    ['vcl.', 'winapi.', 'fmx.', 'data.', 'firedac.', 'infrastructure.', 'infra.', 'app.']);
+  Assert.IsEmpty(Violations, 'ViewModel uses forbidden units:' + Violations);
 end;
 
 initialization
