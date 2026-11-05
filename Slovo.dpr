@@ -26,6 +26,7 @@ uses
   Presentation.Views in 'Presentation\Presentation.Views.pas',
   Presentation.SearchResults in 'Presentation\Presentation.SearchResults.pas',
   Shell.RichEdit in 'Vcl\Shell.RichEdit.pas',
+  Shell.FlatControls in 'Vcl\Shell.FlatControls.pas',
   Shell.LibraryTree in 'Vcl\Shell.LibraryTree.pas',
   Shell.ChapterList in 'Vcl\Shell.ChapterList.pas',
   Shell.SearchResults in 'Vcl\Shell.SearchResults.pas',

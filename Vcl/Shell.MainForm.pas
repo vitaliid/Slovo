@@ -38,7 +38,8 @@ uses
   Presentation.SearchResults,
   Shell.LibraryTree,
   Shell.ChapterList,
-  Shell.SearchResults;
+  Shell.SearchResults,
+  Shell.FlatControls;
 
 type
   // The last chapter shown - re-rendered when the language changes ("Розділ N").
@@ -134,10 +135,9 @@ type
     FSearchTitle: TLabel;
     FSearchEdit: TEdit;
     FScopeTitle: TLabel;
-    FScopeAll: TRadioButton;
-    FScopeChecked: TRadioButton;
-    FExactPhrase: TCheckBox;
-    FWordForms: TCheckBox;
+    FScope: TScopeSwitch;
+    FExactPhrase: TFlatCheckBox;
+    FWordForms: TFlatCheckBox;
     FSearchStatus: TLabel;
     FResultList: TSearchResultList;
     miSearch: TMenuItem;
@@ -311,18 +311,26 @@ begin
   FLibraryTitle.Parent := FLeftPanel;
   FLibraryTitle.Align := alTop;
   FLibraryTitle.AlignWithMargins := True;
-  FLibraryTitle.Margins.SetBounds(ScaleValue(12), ScaleValue(16), ScaleValue(12), ScaleValue(8));
-  FLibraryTitle.Font.Style := [fsBold];
+  // Mockup: aside padding 26 10 40 18, the caption 10.5 px caps, muted, 18 px below.
+  FLibraryTitle.Margins.SetBounds(ScaleValue(26), ScaleValue(26), ScaleValue(12), ScaleValue(18));
+  FLibraryTitle.Font.Height := -ScaleValue(11);
+  FLibraryTitle.Font.Color := ColorMuted;
 
-  FLibraryTree := TLibraryTree.Create(Self, FLeftPanel);
+  FLibraryTree := TLibraryTree.Create(Self, FLeftPanel,
+    function(Value: Integer): Integer
+    begin
+      Result := ScaleValue(Value);
+    end);
+  FLibraryTree.Control.AlignWithMargins := True;
+  FLibraryTree.Control.Margins.SetBounds(ScaleValue(10), 0, ScaleValue(4), ScaleValue(8));
   FLibraryTree.OnActivate := LibraryNodeActivated;
   FLibraryTree.OnCheck := LibraryNodeChecked;
 end;
 
 // A.4, mockup "Читання v2": 320 px, a 1 px line on the left, padding 26 22;
 // from the top - "ПОШУК", the field (EB Garamond 19 px) over a line, "ДЕ ШУКАТИ"
-// and the scope, the two options, a line, the status, the list. Standard VCL
-// controls for now; the mockup's pill and square boxes come with the tree's look.
+// and the scope pill, the two square options (Shell.FlatControls), a line, the
+// status, the list.
 procedure TMainForm.CreateRightPanel;
 var
   Order: Integer;
@@ -399,16 +407,26 @@ begin
 
   FScopeTitle := NewCaption(11);
   Place(FScopeTitle, 22, 20, 22, 8);
-  FScopeAll := TRadioButton.Create(Self);
-  Place(FScopeAll, 22, 0, 22, 4);
-  FScopeChecked := TRadioButton.Create(Self);
-  Place(FScopeChecked, 22, 0, 22, 0);
+  FScope := TScopeSwitch.Create(Self,
+    function(Value: Integer): Integer
+    begin
+      Result := ScaleValue(Value);
+    end);
+  Place(FScope, 22, 0, 22, 0);
 
-  FExactPhrase := TCheckBox.Create(Self);
+  FExactPhrase := TFlatCheckBox.Create(Self,
+    function(Value: Integer): Integer
+    begin
+      Result := ScaleValue(Value);
+    end);
   Place(FExactPhrase, 22, 20, 22, 0);
-  FWordForms := TCheckBox.Create(Self);
+  FWordForms := TFlatCheckBox.Create(Self,
+    function(Value: Integer): Integer
+    begin
+      Result := ScaleValue(Value);
+    end);
   FWordForms.ShowHint := True;
-  Place(FWordForms, 22, 8, 22, 0);
+  Place(FWordForms, 22, 11, 22, 0);
 
   Place(NewLine(TColor($00E6E6E6)), 22, 24, 22, 0);
   FSearchStatus := NewCaption(11);
@@ -488,8 +506,7 @@ begin
   FResultList.ApplyFonts(FTheme.TextFont, FTheme.UiFont);
   FSearchEdit.Font.Name := FTheme.TextFont;
   FSearchEdit.Font.Height := -ScaleValue(19);
-  FScopeAll.Checked := FSettings.GetSearchWholeLibrary;
-  FScopeChecked.Checked := not FScopeAll.Checked;
+  FScope.WholeLibrary := FSettings.GetSearchWholeLibrary;
   FExactPhrase.Checked := FSettings.GetExactPhrase;
   FWordForms.Checked := FSettings.GetWordForms;
   FRightPanel.Visible := FSettings.GetRightPanelVisible;
@@ -562,7 +579,7 @@ begin
   miLanguageRussian.Checked := Localizer.Language = UILanguageCodes[1];
   miLanguageEnglish.Checked := Localizer.Language = UILanguageCodes[2];
 
-  FLibraryTitle.Caption := L('library.title');
+  FLibraryTitle.Caption := L('library.title').ToUpper;
   FLibraryTree.Invalidate;
 
   miSearch.Caption := L('header.search');
@@ -570,7 +587,7 @@ begin
   FSearchHint := L('search.placeholder');
   FSearchEdit.Invalidate;
   FScopeTitle.Caption := L('search.where').ToUpper;
-  FScopeAll.Caption := L('search.scope.all');
+  FScope.AllCaption := L('search.scope.all');
   FExactPhrase.Caption := L('search.exactPhrase');
   FWordForms.Caption := L('search.wordForms');
   FWordForms.Hint := L('search.wordForms.hint');
@@ -589,7 +606,7 @@ end;
 
 procedure TMainForm.UpdateStatus;
 begin
-  FScopeChecked.Caption := L('search.scope.checked', [FCheckedCount]);
+  FScope.CheckedCaption := L('search.scope.checked', [FCheckedCount]);
   lblStatus.Caption := Format('%s: %d  ·  %s  ·  %d %%', [L('library.title'),
     Length(FViewModel.Catalog.Modules), L('search.scope.checked', [FCheckedCount]),
     Round(ZoomPx(FZoomStep) / BaseTextPx * 100)]);
@@ -1187,7 +1204,7 @@ begin
     ShowSearchStatus('search.enterWord');
     Exit;
   end;
-  if FScopeChecked.Checked and (FCheckedCount = 0) then
+  if not FScope.WholeLibrary and (FCheckedCount = 0) then
   begin
     ShowSearchStatus('search.checkSome');
     Exit;
@@ -1197,7 +1214,7 @@ begin
   FSearchDone := False;
   Screen.Cursor := crHourGlass;
   try
-    FViewModel.Search(FSearchEdit.Text, FScopeAll.Checked, FExactPhrase.Checked, FWordForms.Checked);
+    FViewModel.Search(FSearchEdit.Text, FScope.WholeLibrary, FExactPhrase.Checked, FWordForms.Checked);
   finally
     Screen.Cursor := crDefault;
   end;
