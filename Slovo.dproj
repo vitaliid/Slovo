@@ -67,6 +67,10 @@ xcopy /Y /I /Q "$(PROJECTDIR)\fonts\*.*" "$(PROJECTDIR)\$(Platform)\$(Config)\fo
         <DCCReference Include="Presentation\Presentation.SearchResults.pas"/>
         <DCCReference Include="Vcl\Shell.RichEdit.pas"/>
         <DCCReference Include="Vcl\Shell.FlatControls.pas"/>
+        <DCCReference Include="Vcl\Shell.ErrorBannerFrame.pas">
+            <Form>ErrorBannerFrame</Form>
+            <DesignClass>TFrame</DesignClass>
+        </DCCReference>
         <DCCReference Include="Vcl\Shell.LibraryTree.pas"/>
         <DCCReference Include="Vcl\Shell.ChapterList.pas"/>
         <DCCReference Include="Vcl\Shell.SearchResults.pas"/>

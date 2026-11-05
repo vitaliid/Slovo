@@ -27,6 +27,7 @@ uses
   Presentation.SearchResults in 'Presentation\Presentation.SearchResults.pas',
   Shell.RichEdit in 'Vcl\Shell.RichEdit.pas',
   Shell.FlatControls in 'Vcl\Shell.FlatControls.pas',
+  Shell.ErrorBannerFrame in 'Vcl\Shell.ErrorBannerFrame.pas' {ErrorBannerFrame: TFrame},
   Shell.LibraryTree in 'Vcl\Shell.LibraryTree.pas',
   Shell.ChapterList in 'Vcl\Shell.ChapterList.pas',
   Shell.SearchResults in 'Vcl\Shell.SearchResults.pas',

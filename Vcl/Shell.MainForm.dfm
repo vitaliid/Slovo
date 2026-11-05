@@ -12,40 +12,19 @@ object MainForm: TMainForm
   Font.Name = 'Segoe UI'
   Font.Style = []
   KeyPreview = True
-  Menu = mmMain
   Position = poScreenCenter
   OnCreate = FormCreate
   OnKeyDown = FormKeyDown
   TextHeight = 15
-  object pnlStatus: TPanel
+  object pnlCenter: TPanel
     Left = 0
     Top = 0
     Width = 1200
-    Height = 28
-    Align = alTop
-    BevelOuter = bvNone
-    TabOrder = 0
-    object lblStatus: TLabel
-      AlignWithMargins = True
-      Left = 8
-      Top = 6
-      Width = 1184
-      Height = 19
-      Margins.Left = 8
-      Margins.Top = 6
-      Margins.Right = 8
-      Align = alClient
-    end
-  end
-  object pnlCenter: TPanel
-    Left = 0
-    Top = 28
-    Width = 1200
-    Height = 732
+    Height = 760
     Align = alClient
     BevelOuter = bvNone
     ParentBackground = False
-    TabOrder = 1
+    TabOrder = 0
     OnResize = pnlCenterResize
     object pnlColumn: TPanel
       Left = 238
@@ -123,50 +102,40 @@ object MainForm: TMainForm
       end
     end
   end
-  object mmMain: TMainMenu
+  object pmMain: TPopupMenu
     Left = 32
     Top = 64
-    object miFile: TMenuItem
-      object miExit: TMenuItem
-        OnClick = miExitClick
+    object miZoomReset: TMenuItem
+      Action = actZoomReset
+    end
+    object miLanguage: TMenuItem
+      object miLanguageUkrainian: TMenuItem
+        GroupIndex = 1
+        RadioItem = True
+        OnClick = miLanguageItemClick
+      end
+      object miLanguageRussian: TMenuItem
+        Tag = 1
+        GroupIndex = 1
+        RadioItem = True
+        OnClick = miLanguageItemClick
+      end
+      object miLanguageEnglish: TMenuItem
+        Tag = 2
+        GroupIndex = 1
+        RadioItem = True
+        OnClick = miLanguageItemClick
       end
     end
-    object miView: TMenuItem
-      object miZoomIn: TMenuItem
-        Action = actZoomIn
-      end
-      object miZoomOut: TMenuItem
-        Action = actZoomOut
-      end
-      object miZoomReset: TMenuItem
-        Action = actZoomReset
-      end
-      object miViewSeparator: TMenuItem
-      end
-      object miLanguage: TMenuItem
-        object miLanguageUkrainian: TMenuItem
-          GroupIndex = 1
-          RadioItem = True
-          OnClick = miLanguageItemClick
-        end
-        object miLanguageRussian: TMenuItem
-          Tag = 1
-          GroupIndex = 1
-          RadioItem = True
-          OnClick = miLanguageItemClick
-        end
-        object miLanguageEnglish: TMenuItem
-          Tag = 2
-          GroupIndex = 1
-          RadioItem = True
-          OnClick = miLanguageItemClick
-        end
-      end
+    object miViewSeparator: TMenuItem
     end
-    object miHelp: TMenuItem
-      object miSQLiteDiagnostics: TMenuItem
-        OnClick = miSQLiteDiagnosticsClick
-      end
+    object miSQLiteDiagnostics: TMenuItem
+      OnClick = miSQLiteDiagnosticsClick
+    end
+    object miHelpSeparator: TMenuItem
+    end
+    object miExit: TMenuItem
+      OnClick = miExitClick
     end
   end
   object alMain: TActionList

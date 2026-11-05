@@ -12,12 +12,9 @@
 
 app.title = Slovo
 
-menu.file = &Файл
 menu.file.exit = &Выход
-menu.view = &Вид
 menu.view.zoomReset = Обычный размер
 menu.view.language = &Язык
-menu.help = &Справка
 menu.help.sqliteDiagnostics = Д&иагностика SQLite...
 
 dialog.sqliteDiagnostics.title = Диагностика SQLite
@@ -29,6 +26,7 @@ header.silence = Тишина
 header.silence.exit = Выйти из тишины
 header.silence.hint = Скрыть всё, кроме текста (Esc возвращает)
 header.search = Поиск ( / )
+header.more = Меню
 
 library.title = Библиотека
 library.checkHint = Искать в этой книге
@@ -82,6 +80,7 @@ error.invalidQuery = Не удалось разобрать запрос — п�
 error.unsupportedModule = Эта операция не подходит для выбранной книги
 error.unsupportedSchema = Библиотека создана более новой версией программы
 error.unexpected = Что-то пошло не так — подробности в data\\slovo.log
+banner.close = Закрыть
 
 # Phase 0 of startup (C-22): MessageBox before the window exists, not the banner.
 startup.noSqlite = Не найден sqlite3.dll. Распакуйте архив программы полностью в отдельную папку и запустите Slovo.exe оттуда.

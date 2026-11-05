@@ -12,12 +12,9 @@
 
 app.title = Slovo
 
-menu.file = &File
 menu.file.exit = E&xit
-menu.view = &View
 menu.view.zoomReset = Actual size
 menu.view.language = &Language
-menu.help = &Help
 menu.help.sqliteDiagnostics = SQLite &diagnostics...
 
 dialog.sqliteDiagnostics.title = SQLite diagnostics
@@ -29,6 +26,7 @@ header.silence = Silence
 header.silence.exit = Leave silence
 header.silence.hint = Hide everything but the text (Esc brings it back)
 header.search = Search ( / )
+header.more = Menu
 
 library.title = Library
 library.checkHint = Search in this book
@@ -82,6 +80,7 @@ error.invalidQuery = Could not read the query — try without special characters
 error.unsupportedModule = This operation does not apply to the selected book
 error.unsupportedSchema = The library was made by a newer version of the program
 error.unexpected = Something went wrong — details in data\\slovo.log
+banner.close = Close
 
 # Phase 0 of startup (C-22): MessageBox before the window exists, not the banner.
 startup.noSqlite = sqlite3.dll was not found. Extract the whole program archive into a separate folder and run Slovo.exe from there.

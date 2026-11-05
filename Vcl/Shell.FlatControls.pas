@@ -7,10 +7,15 @@
   - TScopeSwitch: the pill "Уся бібліотека | Відмічені книги · N" of the search
     panel (rounded 999px, 3 px inner padding, the active half #2f2f2f / white);
   - TFlatCheckBox: the square option box - a 14 px frame rgba(0,0,0,.26),
-    an 8 px accent square when checked, the caption 13 px #4a4a4a.
+    an 8 px accent square when checked, the caption 13 px #4a4a4a;
+  - TFlatButton: a header button (E-15) - 32 x 32, transparent, a 7 px rounded
+    hover rgba(0,0,0,.05), a line glyph or a caption #6b6b6b (hover #2f2f2f);
+    or the outlined pill "Тиша" (1 px rgba(0,0,0,.16), padding 6 14, 12 px).
 
   Sizes are 96-DPI pixels scaled by the function the form passes (E-14).
-  Both controls take focus: Space toggles, ←/→ switch the scope. *)
+  The controls take focus by Tab: Space toggles, ←/→ switch the scope, Space
+  or Enter presses a button. A button does not take focus on a click - the
+  reader keeps it. *)
 
 interface
 
@@ -81,6 +86,45 @@ type
     property OnClick;
   end;
 
+  TFlatButtonGlyph = (fgNone, fgMenu, fgSearch, fgMore, fgClose);
+
+  TFlatButton = class(TCustomControl)
+  private
+    FScale: TFlatScaleFunc;
+    FGlyph: TFlatButtonGlyph;
+    FPill: Boolean;
+    FFontPx: Integer;
+    FHot: Boolean;
+    FFocusCue: Boolean;
+    function Px(Value: Integer): Integer;
+    procedure SetGlyph(Value: TFlatButtonGlyph);
+    procedure SetPill(Value: Boolean);
+    procedure SetFontPx(Value: Integer);
+    procedure PaintGlyph(Fore: TColor);
+    procedure CMMouseEnter(var Message: TMessage); message CM_MOUSEENTER;
+    procedure CMMouseLeave(var Message: TMessage); message CM_MOUSELEAVE;
+    procedure CMTextChanged(var Message: TMessage); message CM_TEXTCHANGED;
+    procedure CMEnabledChanged(var Message: TMessage); message CM_ENABLEDCHANGED;
+  protected
+    procedure Paint; override;
+    procedure KeyDown(var Key: Word; Shift: TShiftState); override;
+    procedure DoEnter; override;
+    procedure DoExit; override;
+  public
+    constructor Create(AOwner: TComponent; const Scale: TFlatScaleFunc); reintroduce;
+    // The pill's width for its caption: padding 14 px on each side.
+    function PillWidth: Integer;
+    property Glyph: TFlatButtonGlyph read FGlyph write SetGlyph;
+    property Pill: Boolean read FPill write SetPill;
+    // The caption's size, 96-DPI pixels (A− 13, A+ 15, the pill 12).
+    property FontPx: Integer read FFontPx write SetFontPx;
+    property Caption;
+    // The background under the button: the header's or the banner's.
+    property Color;
+    property ShowHint;
+    property OnClick;
+  end;
+
 // A filled rounded rectangle with a 1 px border; Border = clNone - no border.
 procedure PaintRoundRect(Canvas: TCanvas; const R: TRect; Radius: Single; Fill, Border: TColor);
 // The mockup box: Size (14) frame, an Inner (8) accent square when checked.
@@ -95,6 +139,11 @@ const
   ColorPillActive  = TColor($002F2F2F);   // #2f2f2f
   ColorOptionText  = TColor($004A4A4A);   // #4a4a4a
   ColorOptionHover = TColor($001F1F1F);   // #1f1f1f
+  ColorButtonText  = TColor($006B6B6B);   // #6b6b6b
+  ColorButtonHot   = TColor($002F2F2F);   // #2f2f2f
+  ColorButtonOff   = TColor($00BDBDBD);   // a disabled button
+  ColorPillOutline = TColor($00D4D4D4);   // rgba(0,0,0,.16) on #fcfcfc
+  ColorPillHot     = TColor($00B0B0B0);   // rgba(0,0,0,.3) on #fcfcfc
 
 implementation
 
@@ -170,6 +219,16 @@ begin
   finally
     G.Free;
   end;
+end;
+
+// The colour under rgba(0,0,0,Alpha) laid over Color.
+function Shade(Color: TColor; Alpha: Single): TColor;
+var
+  C: COLORREF;
+begin
+  C := ColorToRGB(Color);
+  Result := TColor(RGB(Round(GetRValue(C) * (1 - Alpha)), Round(GetGValue(C) * (1 - Alpha)),
+    Round(GetBValue(C) * (1 - Alpha))));
 end;
 
 procedure PaintCheckBox(Canvas: TCanvas; const R: TRect; Checked: Boolean; Inner: Integer);
@@ -493,6 +552,218 @@ begin
 end;
 
 procedure TFlatCheckBox.CMTextChanged(var Message: TMessage);
+begin
+  inherited;
+  Invalidate;
+end;
+
+{ TFlatButton }
+
+constructor TFlatButton.Create(AOwner: TComponent; const Scale: TFlatScaleFunc);
+begin
+  inherited Create(AOwner);
+  FScale := Scale;
+  FFontPx := 13;
+  ControlStyle := ControlStyle + [csOpaque] - [csDoubleClicks];
+  DoubleBuffered := True;
+  TabStop := True;
+  Color := ColorBackground;
+  Width := Px(32);
+  Height := Px(32);
+  Cursor := crHandPoint;
+end;
+
+function TFlatButton.Px(Value: Integer): Integer;
+begin
+  Result := FScale(Value);
+end;
+
+procedure TFlatButton.SetGlyph(Value: TFlatButtonGlyph);
+begin
+  FGlyph := Value;
+  Invalidate;
+end;
+
+procedure TFlatButton.SetPill(Value: Boolean);
+begin
+  FPill := Value;
+  Invalidate;
+end;
+
+procedure TFlatButton.SetFontPx(Value: Integer);
+begin
+  FFontPx := Value;
+  Invalidate;
+end;
+
+function TFlatButton.PillWidth: Integer;
+begin
+  Canvas.Font.Name := UiFontName;
+  Canvas.Font.Height := -Px(FFontPx);
+  Canvas.Font.Style := [];
+  Result := Canvas.TextWidth(Caption) + 2 * Px(14) + 2;
+end;
+
+// The mockup's SVG glyphs, a 16 x 16 box, stroke 1.5, round caps.
+procedure TFlatButton.PaintGlyph(Fore: TColor);
+var
+  G: TGPGraphics;
+  Pen: TGPPen;
+  Brush: TGPSolidBrush;
+  S, X, Y: Single;
+  I: Integer;
+
+  procedure Line(X1, Y1, X2, Y2: Single);
+  begin
+    G.DrawLine(Pen, X + X1 * S, Y + Y1 * S, X + X2 * S, Y + Y2 * S);
+  end;
+
+begin
+  S := Px(16) / 16;
+  X := (Width - 16 * S) / 2;
+  Y := (Height - 16 * S) / 2;
+  G := TGPGraphics.Create(Canvas.Handle);
+  Pen := TGPPen.Create(ToArgb(Fore), 1.5 * S);
+  Brush := TGPSolidBrush.Create(ToArgb(Fore));
+  try
+    G.SetSmoothingMode(SmoothingModeAntiAlias);
+    Pen.SetStartCap(LineCapRound);
+    Pen.SetEndCap(LineCapRound);
+    case FGlyph of
+      fgMenu:
+        begin
+          Line(2, 4, 14, 4);
+          Line(2, 8, 14, 8);
+          Line(2, 12, 14, 12);
+        end;
+      fgSearch:
+        begin
+          G.DrawEllipse(Pen, X + 2.5 * S, Y + 2.5 * S, 9 * S, 9 * S);
+          Line(10.5, 10.5, 14, 14);
+        end;
+      fgMore:
+        for I := 0 to 2 do
+          G.FillEllipse(Brush, X + (1.75 + 5 * I) * S, Y + 6.75 * S, 2.5 * S, 2.5 * S);
+      fgClose:
+        begin
+          Line(4, 4, 12, 12);
+          Line(12, 4, 4, 12);
+        end;
+    end;
+  finally
+    Brush.Free;
+    Pen.Free;
+    G.Free;
+  end;
+end;
+
+procedure TFlatButton.Paint;
+var
+  Active: Boolean;
+  Fore: TColor;
+  R: TRect;
+  Text: string;
+begin
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Brush.Color := Color;
+  Canvas.FillRect(ClientRect);
+  Active := FHot and Enabled;
+  if not Enabled then
+    Fore := ColorButtonOff
+  else if Active then
+    Fore := ColorButtonHot
+  else
+    Fore := ColorButtonText;
+
+  if FPill then
+  begin
+    if Active then
+      PaintRoundRect(Canvas, ClientRect, Height / 2, clNone, ColorPillHot)
+    else
+      PaintRoundRect(Canvas, ClientRect, Height / 2, clNone, ColorPillOutline);
+  end
+  else if Active then
+    PaintRoundRect(Canvas, ClientRect, Px(7), Shade(Color, 0.05), clNone);
+
+  if FGlyph <> fgNone then
+    PaintGlyph(Fore)
+  else
+  begin
+    Text := Caption;
+    Canvas.Font.Name := UiFontName;
+    Canvas.Font.Height := -Px(FFontPx);
+    Canvas.Font.Style := [];
+    Canvas.Font.Color := Fore;
+    Canvas.Brush.Style := bsClear;
+    R := ClientRect;
+    Winapi.Windows.DrawText(Canvas.Handle, PChar(Text), Length(Text), R,
+      DT_SINGLELINE or DT_VCENTER or DT_CENTER or DT_NOPREFIX);
+  end;
+
+  if Focused and FFocusCue then
+  begin
+    R := ClientRect;
+    if FPill then
+      InflateRect(R, -Px(8), -Px(4))
+    else
+      InflateRect(R, -Px(3), -Px(3));
+    Canvas.Brush.Style := bsSolid;
+    Canvas.Brush.Color := Color;
+    Canvas.Font.Color := Fore;
+    Canvas.DrawFocusRect(R);
+  end;
+end;
+
+procedure TFlatButton.KeyDown(var Key: Word; Shift: TShiftState);
+begin
+  inherited;
+  if not FFocusCue then
+  begin
+    FFocusCue := True;
+    Invalidate;
+  end;
+  if ((Key = vkSpace) or (Key = vkReturn)) and Enabled then
+  begin
+    Key := 0;
+    Click;
+  end;
+end;
+
+procedure TFlatButton.DoEnter;
+begin
+  inherited;
+  FFocusCue := not FocusedByMouse;
+  Invalidate;
+end;
+
+procedure TFlatButton.DoExit;
+begin
+  inherited;
+  FFocusCue := False;
+  Invalidate;
+end;
+
+procedure TFlatButton.CMMouseEnter(var Message: TMessage);
+begin
+  inherited;
+  FHot := True;
+  Invalidate;
+end;
+
+procedure TFlatButton.CMMouseLeave(var Message: TMessage);
+begin
+  inherited;
+  FHot := False;
+  Invalidate;
+end;
+
+procedure TFlatButton.CMTextChanged(var Message: TMessage);
+begin
+  inherited;
+  Invalidate;
+end;
+
+procedure TFlatButton.CMEnabledChanged(var Message: TMessage);
 begin
   inherited;
   Invalidate;

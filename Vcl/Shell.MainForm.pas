@@ -7,8 +7,10 @@
   check, zoom (E-11), the ‹ › bar, the shelf and the table of contents
   (Shell.ChapterList, C.5); the library tree on the left (Shell.LibraryTree,
   A.3); the search panel on the right (A.4, Shell.SearchResults) with F3 /
-  Shift+F3 over the matches of the open chapter (A.6). Next: the header and the
-  error banner (E-15).
+  Shift+F3 over the matches of the open chapter (A.6); the header ☰ · SLOVO ·
+  A− 100% A+ · «Тиша» · 🔍 · ⋯ and the error banner under it (E-15,
+  Shell.ErrorBannerFrame). There is no menu bar: its items open from ⋯ (pmMain).
+  Next: «Тиша» and the narrow-window rules (A.5).
 
   No interface literal in the .dfm (E-05): every caption comes from
   ApplyLocalization. *)
@@ -39,35 +41,30 @@ uses
   Shell.LibraryTree,
   Shell.ChapterList,
   Shell.SearchResults,
-  Shell.FlatControls;
+  Shell.FlatControls,
+  Shell.ErrorBannerFrame;
 
 type
   // The last chapter shown - re-rendered when the language changes ("Розділ N").
   TShownChapter = (scNone, scBook, scBible);
 
   TMainForm = class(TForm, IMainView)
-    mmMain: TMainMenu;
-    miFile: TMenuItem;
-    miExit: TMenuItem;
-    miView: TMenuItem;
-    miZoomIn: TMenuItem;
-    miZoomOut: TMenuItem;
+    pmMain: TPopupMenu;
     miZoomReset: TMenuItem;
-    miViewSeparator: TMenuItem;
     miLanguage: TMenuItem;
     miLanguageUkrainian: TMenuItem;
     miLanguageRussian: TMenuItem;
     miLanguageEnglish: TMenuItem;
-    miHelp: TMenuItem;
+    miViewSeparator: TMenuItem;
     miSQLiteDiagnostics: TMenuItem;
+    miHelpSeparator: TMenuItem;
+    miExit: TMenuItem;
     alMain: TActionList;
     actZoomIn: TAction;
     actZoomOut: TAction;
     actZoomReset: TAction;
     actPrevChapter: TAction;
     actNextChapter: TAction;
-    pnlStatus: TPanel;
-    lblStatus: TLabel;
     pnlCenter: TPanel;
     pnlColumn: TPanel;
     pnlCrumbs: TPanel;
@@ -88,6 +85,7 @@ type
     procedure miLanguageItemClick(Sender: TObject);
     procedure miSQLiteDiagnosticsClick(Sender: TObject);
   private
+    FScale: TFlatScaleFunc;              // ScaleValue for the controls made in code (E-14)
     FViewModel: TMainViewModel;
     FSettings: ISettings;
     FTheme: TReaderTheme;
@@ -140,8 +138,6 @@ type
     FWordForms: TFlatCheckBox;
     FSearchStatus: TLabel;
     FResultList: TSearchResultList;
-    miSearch: TMenuItem;
-    miSearchSeparator: TMenuItem;
     FLastReply: TSearchReply;
     FHasReply: Boolean;
     FSearchDone: Boolean;
@@ -159,9 +155,29 @@ type
     procedure ShowSearchReply(const Reply: TSearchReply);
     procedure SearchResultOpened(Section: TResultSectionKind; Index: Integer);
     procedure SearchEditKeyPress(Sender: TObject; var Key: Char);
-    procedure miSearchClick(Sender: TObject);
     procedure FormKeyPress(Sender: TObject; var Key: Char);
     procedure MoveHit(Delta: Integer);
+
+  private
+    // Header (E-15, mockup "Читання v2"), created in code: ☰ · SLOVO · A− 100% A+ ·
+    // «Тиша» · 🔍 · ⋯; the error banner right under it.
+    FHeader: TPanel;
+    FLibraryButton: TFlatButton;
+    FBrand: TLabel;
+    FZoomOutButton: TFlatButton;
+    FZoomLabel: TLabel;
+    FZoomInButton: TFlatButton;
+    FSilenceButton: TFlatButton;
+    FSearchButton: TFlatButton;
+    FMoreButton: TFlatButton;
+    FBanner: TErrorBannerFrame;
+    FBannerKey: string;                  // the shown error's text key - re-localized
+    procedure CreateHeader;
+    procedure HeaderResize(Sender: TObject);
+    procedure LibraryButtonClick(Sender: TObject);
+    procedure SearchButtonClick(Sender: TObject);
+    procedure MoreButtonClick(Sender: TObject);
+    procedure SetLeftPanelVisible(Value: Boolean);
 
   private
     // Navigator of the matches in the open chapter (E-08, A.6), centred between
@@ -250,6 +266,10 @@ end;
 
 procedure TMainForm.FormCreate(Sender: TObject);
 begin
+  FScale := function(Value: Integer): Integer
+    begin
+      Result := ScaleValue(Value);
+    end;
   // A.6: Ctrl+= / Ctrl+- / Ctrl+0, numeric keypad as the second shortcut.
   actZoomIn.ShortCut := ShortCut(VK_OEM_PLUS, [ssCtrl]);
   actZoomIn.SecondaryShortCuts.Add(ShortCutToText(ShortCut(VK_ADD, [ssCtrl])));
@@ -272,6 +292,7 @@ begin
   FReaderWndProc := redReader.WindowProc;
   redReader.WindowProc := ReaderWndProc;
 
+  CreateHeader;                          // alTop first: above the side panels
   CreateLeftPanel;
   CreateRightPanel;
   CreateHitNav;
@@ -295,6 +316,136 @@ begin
   FLibraryTree.Free;
   FResultList.Free;
   inherited;
+end;
+
+// E-15, mockup "Читання v2": 57 px with a 1 px line below, padding 12 20;
+// the buttons are placed by HeaderResize.
+procedure TMainForm.CreateHeader;
+
+  function NewButton(Glyph: TFlatButtonGlyph; const Click: TNotifyEvent): TFlatButton;
+  begin
+    Result := TFlatButton.Create(Self, FScale);
+    Result.Parent := FHeader;
+    Result.Glyph := Glyph;
+    Result.ShowHint := True;
+    Result.OnClick := Click;
+  end;
+
+  function NewText(Px: Integer): TLabel;
+  begin
+    Result := TLabel.Create(Self);
+    Result.Parent := FHeader;
+    Result.ShowAccelChar := False;
+    Result.Transparent := True;
+    Result.Font.Height := -ScaleValue(Px);
+    Result.Font.Color := ColorMuted;
+  end;
+
+var
+  Line: TPanel;
+begin
+  FHeader := TPanel.Create(Self);
+  FHeader.Parent := Self;
+  FHeader.Align := alTop;
+  FHeader.Top := 0;
+  FHeader.Height := ScaleValue(HeaderHeight);
+  FHeader.BevelOuter := bvNone;
+  FHeader.ParentBackground := False;
+  FHeader.Color := ColorBackground;
+
+  Line := TPanel.Create(Self);
+  Line.Parent := FHeader;
+  Line.Align := alBottom;
+  Line.Height := 1;
+  Line.BevelOuter := bvNone;
+  Line.ParentBackground := False;
+  Line.Color := TColor($00E6E6E6);       // rgba(0,0,0,.09)
+
+  FLibraryButton := NewButton(fgMenu, LibraryButtonClick);
+  FBrand := NewText(11);
+  // "Slovo": caps, letter-spacing .14em - hair spaces (U+200A) between letters.
+  FBrand.Caption := 'S'#$200A'L'#$200A'O'#$200A'V'#$200A'O';
+  FZoomOutButton := NewButton(fgNone, actZoomOutExecute);
+  FZoomOutButton.Caption := 'A'#$2212;
+  FZoomOutButton.FontPx := 13;
+  FZoomLabel := NewText(11);
+  FZoomLabel.AutoSize := False;
+  FZoomLabel.Alignment := taCenter;
+  FZoomLabel.Layout := tlCenter;
+  FZoomInButton := NewButton(fgNone, actZoomInExecute);
+  FZoomInButton.Caption := 'A+';
+  FZoomInButton.FontPx := 15;
+  // «Тиша» (A.5) comes with the next step; the pill already stands in its place.
+  FSilenceButton := NewButton(fgNone, nil);
+  FSilenceButton.Pill := True;
+  FSilenceButton.FontPx := 12;
+  FSilenceButton.Enabled := False;
+  FSearchButton := NewButton(fgSearch, SearchButtonClick);
+  FMoreButton := NewButton(fgMore, MoreButtonClick);
+  FHeader.OnResize := HeaderResize;
+
+  FBanner := TErrorBannerFrame.Create(Self, FScale);
+  FBanner.Attach(Self);
+end;
+
+// Mockup: the left group ☰ · SLOVO, gap 14; the right group A− 100% A+ (gap 2,
+// the label 42 px), «Тиша», 🔍, gap 14; ⋯ right after 🔍.
+procedure TMainForm.HeaderResize(Sender: TObject);
+var
+  Mid, X, B, W: Integer;
+
+  procedure PlaceAt(Control: TControl; Left, Width, Height: Integer);
+  begin
+    Control.SetBounds(Left, Mid - Height div 2, Width, Height);
+  end;
+
+begin
+  if FMoreButton = nil then
+    Exit;
+  Mid := (FHeader.ClientHeight - 1) div 2;
+  B := ScaleValue(32);
+  X := ScaleValue(20);
+  PlaceAt(FLibraryButton, X, B, B);
+  Inc(X, B + ScaleValue(14));
+  PlaceAt(FBrand, X, FBrand.Width, FBrand.Height);
+
+  X := FHeader.ClientWidth - ScaleValue(20) - B;
+  PlaceAt(FMoreButton, X, B, B);
+  Dec(X, ScaleValue(2) + B);
+  PlaceAt(FSearchButton, X, B, B);
+  W := FSilenceButton.PillWidth;
+  Dec(X, ScaleValue(14) + W);
+  PlaceAt(FSilenceButton, X, W, ScaleValue(30));
+  Dec(X, ScaleValue(14) + B);
+  PlaceAt(FZoomInButton, X, B, B);
+  Dec(X, ScaleValue(2) + ScaleValue(42));
+  PlaceAt(FZoomLabel, X, ScaleValue(42), B);
+  Dec(X, ScaleValue(2) + B);
+  PlaceAt(FZoomOutButton, X, B, B);
+end;
+
+procedure TMainForm.LibraryButtonClick(Sender: TObject);
+begin
+  SetLeftPanelVisible(not FLeftPanel.Visible);
+end;
+
+procedure TMainForm.SetLeftPanelVisible(Value: Boolean);
+begin
+  if not Value and FLeftPanel.ContainsControl(ActiveControl) then
+    FocusReaderOrList;
+  FLeftPanel.Visible := Value;
+  FSettings.SetLeftPanelVisible(Value);
+  pnlCenterResize(nil);
+end;
+
+// The former menu bar, under ⋯: aligned to the button's right edge.
+procedure TMainForm.MoreButtonClick(Sender: TObject);
+var
+  P: TPoint;
+begin
+  P := FMoreButton.ClientToScreen(Point(FMoreButton.Width, FMoreButton.Height + ScaleValue(4)));
+  pmMain.Alignment := paRight;
+  pmMain.Popup(P.X, P.Y);
 end;
 
 procedure TMainForm.CreateLeftPanel;
@@ -448,14 +599,6 @@ begin
     end;
   FResultList.OnOpen := SearchResultOpened;
   FSearchStatusArg := -1;
-
-  // The menu item of the 🔍 button until the header exists (E-15 step).
-  miSearch := TMenuItem.Create(Self);
-  miSearch.OnClick := miSearchClick;
-  miSearchSeparator := TMenuItem.Create(Self);
-  miSearchSeparator.Caption := cLineCaption;
-  miView.Insert(0, miSearchSeparator);
-  miView.Insert(0, miSearch);
 end;
 
 { IMainView }
@@ -509,6 +652,7 @@ begin
   FScope.WholeLibrary := FSettings.GetSearchWholeLibrary;
   FExactPhrase.Checked := FSettings.GetExactPhrase;
   FWordForms.Checked := FSettings.GetWordForms;
+  FLeftPanel.Visible := FSettings.GetLeftPanelVisible;
   FRightPanel.Visible := FSettings.GetRightPanelVisible;
   FZoomStep := EnsureRange(FSettings.GetZoomStep, MinZoomStep, MaxZoomStep);
   PrepareReader(redReader);
@@ -536,6 +680,7 @@ begin
   else
     FSettings.SetWindowBounds(BoundsRect, WindowState = wsMaximized);
   FSettings.SetZoomStep(FZoomStep);
+  FSettings.SetLeftPanelVisible(FLeftPanel.Visible);
   FSettings.SetRightPanelVisible(FRightPanel.Visible);
   FSettings.Save;
   FViewModel := nil;
@@ -561,16 +706,26 @@ end;
 procedure TMainForm.ApplyLocalization;
 begin
   Caption := L('app.title');
-  miFile.Caption := L('menu.file');
   miExit.Caption := L('menu.file.exit');
-  miView.Caption := L('menu.view');
   actZoomIn.Caption := L('header.bigger');
   actZoomOut.Caption := L('header.smaller');
   actZoomReset.Caption := L('menu.view.zoomReset');
   miViewSeparator.Caption := cLineCaption;
   miLanguage.Caption := L('menu.view.language');
-  miHelp.Caption := L('menu.help');
   miSQLiteDiagnostics.Caption := L('menu.help.sqliteDiagnostics');
+  miHelpSeparator.Caption := cLineCaption;
+
+  FLibraryButton.Hint := L('header.library');
+  FZoomOutButton.Hint := L('header.smaller');
+  FZoomInButton.Hint := L('header.bigger');
+  FSilenceButton.Caption := L('header.silence');
+  FSilenceButton.Hint := L('header.silence.hint');
+  FSearchButton.Hint := L('header.search');
+  FMoreButton.Hint := L('header.more');
+  FBanner.CloseHint := L('banner.close');
+  if FBanner.Visible and (FBannerKey <> '') then
+    FBanner.lblMessage.Caption := L(FBannerKey);
+  HeaderResize(nil);                     // the pill's width follows its caption
 
   miLanguageUkrainian.Caption := LanguageName(UILanguageCodes[0]);
   miLanguageRussian.Caption := LanguageName(UILanguageCodes[1]);
@@ -582,7 +737,6 @@ begin
   FLibraryTitle.Caption := L('library.title').ToUpper;
   FLibraryTree.Invalidate;
 
-  miSearch.Caption := L('header.search');
   FSearchTitle.Caption := L('search.title').ToUpper;
   FSearchHint := L('search.placeholder');
   FSearchEdit.Invalidate;
@@ -607,9 +761,9 @@ end;
 procedure TMainForm.UpdateStatus;
 begin
   FScope.CheckedCaption := L('search.scope.checked', [FCheckedCount]);
-  lblStatus.Caption := Format('%s: %d  ·  %s  ·  %d %%', [L('library.title'),
-    Length(FViewModel.Catalog.Modules), L('search.scope.checked', [FCheckedCount]),
-    Round(ZoomPx(FZoomStep) / BaseTextPx * 100)]);
+  FZoomLabel.Caption := Format('%d%%', [Round(ZoomPx(FZoomStep) / BaseTextPx * 100)]);
+  FZoomOutButton.Enabled := FZoomStep > MinZoomStep;
+  FZoomInButton.Enabled := FZoomStep < MaxZoomStep;
 end;
 
 { the text column (A.2) }
@@ -1172,7 +1326,7 @@ begin
   end;
 end;
 
-procedure TMainForm.miSearchClick(Sender: TObject);
+procedure TMainForm.SearchButtonClick(Sender: TObject);
 begin
   if FRightPanel.Visible then
   begin
@@ -1436,7 +1590,9 @@ end;
 
 procedure TMainForm.ShowError(Error: TResultError);
 begin
-  lblStatus.Caption := L(ErrorKey(Error));       // the banner (E-15) - next step
+  FBannerKey := ErrorKey(Error);
+  FBanner.Top := FHeader.BoundsRect.Bottom;      // alTop keeps the order of Top: under the header
+  FBanner.ShowText(L(FBannerKey));
 end;
 
 procedure TMainForm.HandleException(Sender: TObject; E: Exception);
