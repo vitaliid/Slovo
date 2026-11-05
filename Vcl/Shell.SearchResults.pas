@@ -262,6 +262,11 @@ begin
   if (Data = nil) or (Data.Section > High(FSections)) then
     Exit;
   R := Rect(CellRect.Left, CellRect.Top, Sender.ClientWidth, CellRect.Bottom);
+  // CellRect includes the indent, where VST draws the expand button of a
+  // section or translation: headers start after it (rows have no button and
+  // keep the full width).
+  if Data.Kind <> nkRow then
+    R.Left := CellRect.Left + Integer(Sender.GetNodeLevel(Node) + 1) * Integer(FTree.Indent);
   Hot := (Node = Sender.HotNode) or ((Node = Sender.FocusedNode) and Sender.Focused);
 
   TargetCanvas.Brush.Style := bsSolid;
@@ -294,7 +299,7 @@ begin
           TargetCanvas.Font.Style := [];
           TargetCanvas.Font.Color := ColorText;
         end;
-        TextR := Rect(R.Left + Px(4), R.Top, R.Right - Px(4), R.Bottom);
+        TextR := Rect(R.Left + Px(2), R.Top, R.Right - Px(4), R.Bottom);
         Winapi.Windows.DrawText(TargetCanvas.Handle, PChar(Text), Length(Text), TextR,
           DT_SINGLELINE or DT_VCENTER or DT_LEFT or DT_NOPREFIX or DT_END_ELLIPSIS);
       end;

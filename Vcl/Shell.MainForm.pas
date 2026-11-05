@@ -147,6 +147,10 @@ type
     FSearchDone: Boolean;
     FSearchStatusKey: string;            // '' = empty line; kept to re-localize
     FSearchStatusArg: Integer;           // -1 = the key takes no argument
+    FSearchHint: string;
+    FSearchEditWndProc: TWndMethod;
+    procedure SearchEditWndProc(var Message: TMessage);
+    procedure SearchEditChange(Sender: TObject);
     procedure CreateRightPanel;
     procedure SetRightPanelVisible(Value: Boolean);
     procedure OpenSearch;
@@ -363,6 +367,11 @@ begin
   FSearchEdit.Color := ColorBackground;
   FSearchEdit.Font.Color := ColorHeading;
   FSearchEdit.OnKeyPress := SearchEditKeyPress;
+  FSearchEdit.OnChange := SearchEditChange;
+  // The placeholder is painted by us: the native cue banner (TextHint) does
+  // not show in a borderless edit (seen on Windows 11).
+  FSearchEditWndProc := FSearchEdit.WindowProc;
+  FSearchEdit.WindowProc := SearchEditWndProc;
   Place(FSearchEdit, 22, 0, 22, 0);
   Place(NewLine(TColor($00D1D1D1)), 22, 9, 22, 0);   // rgba(0,0,0,.18)
 
@@ -524,7 +533,8 @@ begin
 
   miSearch.Caption := L('header.search');
   FSearchTitle.Caption := L('search.title').ToUpper;
-  FSearchEdit.TextHint := L('search.placeholder');
+  FSearchHint := L('search.placeholder');
+  FSearchEdit.Invalidate;
   FScopeTitle.Caption := L('search.where').ToUpper;
   FScopeAll.Caption := L('search.scope.all');
   FExactPhrase.Caption := L('search.exactPhrase');
@@ -1157,6 +1167,37 @@ begin
         FViewModel.OpenSearchResult(FLastReply.Bible.Items[Index].Ref);
     end;
   TThread.ForceQueue(nil, Queued);
+end;
+
+// Mockup: the placeholder stays while the field is empty, focused or not.
+procedure TMainForm.SearchEditWndProc(var Message: TMessage);
+var
+  DC: HDC;
+  Canvas: TCanvas;
+  Margins: LRESULT;
+begin
+  FSearchEditWndProc(Message);
+  if (Message.Msg <> WM_PAINT) or (FSearchEdit.GetTextLen > 0) or (FSearchHint = '') then
+    Exit;
+  DC := GetDC(FSearchEdit.Handle);
+  Canvas := TCanvas.Create;
+  try
+    Canvas.Handle := DC;
+    Canvas.Font := FSearchEdit.Font;
+    Canvas.Font.Color := ColorMarker;
+    Canvas.Brush.Style := bsClear;
+    Margins := SendMessage(FSearchEdit.Handle, EM_GETMARGINS, 0, 0);
+    Canvas.TextOut(LoWord(Margins), 0, FSearchHint);
+  finally
+    Canvas.Handle := 0;
+    Canvas.Free;
+    ReleaseDC(FSearchEdit.Handle, DC);
+  end;
+end;
+
+procedure TMainForm.SearchEditChange(Sender: TObject);
+begin
+  FSearchEdit.Invalidate;                // the placeholder comes and goes with the text
 end;
 
 procedure TMainForm.SearchEditKeyPress(Sender: TObject; var Key: Char);
