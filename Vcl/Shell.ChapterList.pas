@@ -172,6 +172,7 @@ begin
 
   FTree := TVirtualStringTree.Create(AOwner);
   FTree.Parent := FTreeHost;
+  FTree.ScrollBarOptions.ScrollBars := System.UITypes.TScrollStyle.ssVertical;
   FTree.ScrollBarOptions.AlwaysVisible := True;
   FTree.BorderStyle := bsNone;
   FTree.Color := ColorBackground;

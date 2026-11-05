@@ -607,8 +607,14 @@ end;
 
 // The text starts after the column's left margin (A.5).
 procedure TMainForm.ReaderHostResize(Sender: TObject);
+var
+  Shift: Integer;
 begin
-  FitHidingScrollBar(redReader, Rect(FLeftPad, 0, FReaderHost.ClientWidth, FReaderHost.ClientHeight));
+  // The RTF keeps the markers' zone as its left margin (\li960 = 64 px), but
+  // EM_SETZOOM scales it with the text: the reader moves left by the zoom's
+  // surplus, so the text stays under the crumbs at FLeftPad.
+  Shift := FLeftPad - Round(ScaleValue(TextMarkerMargin) * ZoomPx(FZoomStep) / BaseTextPx);
+  FitHidingScrollBar(redReader, Rect(Shift, 0, FReaderHost.ClientWidth, FReaderHost.ClientHeight));
 end;
 
 procedure TMainForm.FormResized(Sender: TObject);
@@ -929,6 +935,8 @@ begin
       Result := ScaleValue(Value);
     end);
   FResultList.Control.Align := alNone;
+  // Vertical only: with AlwaysVisible VST's default ssBoth showed a horizontal bar.
+  FResultList.Control.ScrollBarOptions.ScrollBars := System.UITypes.TScrollStyle.ssVertical;
   FResultList.Control.ScrollBarOptions.AlwaysVisible := True;
   FRightBar.Attach(FResultList.Control, TreeMetrics(FResultList.Control),
     TreeScrollTo(FResultList.Control));
@@ -1121,7 +1129,7 @@ end;
 
 procedure TMainForm.pnlCenterResize(Sender: TObject);
 var
-  Side, LeftPad: Integer;
+  Side, LeftPad, ColumnWidth, TextLeft, Margin: Integer;
 begin
   // A.5 with the mockup's CSS (Presentation.Theme): side padding of the centre,
   // then a column of at most 724 px of text plus its left margin, centred.
@@ -1130,16 +1138,21 @@ begin
     ScaleValue(TextColumnSideMin), ScaleValue(TextColumnSideMax));
   LeftPad := EnsureRange(ClientWidth * TextColumnLeftPercent div 100,
     ScaleValue(TextColumnLeftMin), ScaleValue(TextColumnLeftMax));
-  // The left margin belongs to every child but the list, which draws chapter
-  // numbers inside it (mockup: number at left -64px).
-  FLeftPad := LeftPad;
-  pnlCrumbs.Margins.Left := LeftPad;
-  pnlChapterNav.Margins.SetBounds(LeftPad, 0, 0, 0);
+  // border-box as the mockup's CSS: the left padding is inside the 724 px, the
+  // text starts after it.
+  ColumnWidth := Max(Min(ScaleValue(TextColumnMax), pnlCenter.ClientWidth - 2 * Side), 0);
+  TextLeft := (pnlCenter.ClientWidth - ColumnWidth) div 2 + LeftPad;
+  // pnlColumn itself starts the markers' zone (64 px) left of the text, so
+  // inside it the text is always at 64: crumbs, chapter bar, toc numbers
+  // (mockup: left -64px) and the RTF's \li960 line up.
+  Margin := ScaleValue(TextMarkerMargin);
+  FLeftPad := Margin;
+  pnlCrumbs.Margins.Left := Margin;
+  pnlChapterNav.Margins.SetBounds(Margin, 0, 0, 0);
   if FChapterList <> nil then
-    FChapterList.SetLeftPad(LeftPad);
-  // border-box as the mockup's CSS: the left margin is inside the 724 px.
-  pnlColumn.Width := Max(Min(ScaleValue(TextColumnMax), pnlCenter.ClientWidth - 2 * Side), 0);
-  pnlColumn.Left := (pnlCenter.ClientWidth - pnlColumn.Width) div 2;
+    FChapterList.SetLeftPad(Margin);
+  pnlColumn.Width := Max(ColumnWidth - LeftPad, 0) + Margin;
+  pnlColumn.Left := TextLeft - Margin;
   pnlColumn.Top := 0;
   pnlColumn.Height := pnlCenter.ClientHeight;
   if FReaderHost <> nil then
@@ -1601,6 +1614,7 @@ begin
   FZoomStep := Value;
   SetZoomPx(redReader, ZoomPx(FZoomStep));
   FSettings.SetZoomStep(FZoomStep);
+  ReaderHostResize(nil);                 // the margin scales with the zoom
   UpdateStatus;
 end;
 

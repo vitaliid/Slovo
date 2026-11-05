@@ -17,8 +17,13 @@
   so a match at the end of a paragraph got a box reaching into the gap (seen on
   Windows 11). A spacer has no text and so nothing to highlight; it costs one
   more \par (1 character) per gap, which the writer counts like any other.
-  A marker ("[71] ", "8 ") stands before StartChar, so a match position is
-  StartChar + Offset with no correction.
+  Markers stand in the left margin, as the mockup (R4-07 recipe, Vitalii,
+  2026-11-06): every paragraph is indented by the margin (\li960 = 64 px); a
+  paragraph with a marker hangs its first line back to 0 and tabs twice -
+  "\tab[71]\tab text", the marker right-aligned at 44 px (\tqr\tx660), the
+  text at 64 px (\tx960). \tx counts from the formatting rectangle's edge.
+  The two tabs and the marker stand before StartChar (MarkerLen), so a match
+  position is StartChar + Offset with no correction.
 
   Text goes through one replacement that keeps its length: CR, LF, TAB and other
   control characters become a space; '\', '{', '}' are escaped; everything
@@ -35,7 +40,7 @@ type
   TParagraphRange = record
     LogicalIndex: Integer;       // for the Bible - VerseNumber
     StartChar, Len: Integer;     // the text in RichEdit coordinates, AFTER the marker; Len = Length(Text)
-    MarkerLen: Integer;          // length of "[71] " / "8 " before StartChar; 0 - no marker
+    MarkerLen: Integer;          // length of "\t[71]\t" / "\t8\t" before StartChar; 0 - no marker
     PageNumber, ParagraphOnPage: Integer;
   end;
 
@@ -87,10 +92,10 @@ const
   RtfChapterTitle    = '\f0\fs69\cf7';                      // 46 px
   RtfChapterLabel    = '\f0\fs26\i\cf3';                    // 17 px
   RtfSubChapterTitle = '\f0\fs42\cf1';                      // 28 px
-  RtfEpigraph        = '\li600\ri600\f0\fs29\i\cf4';        // 19 px, E-10: one block
+  RtfEpigraph        = '\li1560\ri600\f0\fs29\i\cf4';       // 19 px, padding 0 40 after the margin; E-10: one block
   RtfSectionHeading  = '\f0\fs31\b\cf1';                    // real Bold file (E-04)
   RtfSourceCitation  = '\qr\f0\fs22\i\cf3';                 // 15 px
-  RtfText            = '\fi360\f0\fs31\cf1';                // 20.5 px; 24 px first-line indent
+  RtfText            = '\f0\fs31\cf1';                      // 20.5 px; no first-line indent (mockup)
   RtfVerse           = '\f0\fs31\cf1';
 
   // Space before / after, twips. The gap between two paragraphs is the
@@ -109,8 +114,13 @@ const
 
   // Start of a spacer paragraph; \fs2 keeps the empty line from growing past \sl.
   RtfSpacerStart     = '\pard\plain\sl-';
-  RtfPageMarker      = '\f1\fs16\cf2';                       // "[71] "
-  RtfVerseNumber     = '\fs19\cf2';                          // "8 "
+  // The left margin of every paragraph (64 px): the markers' zone, A.5.
+  RtfMargin          = '\li960';
+  // A paragraph with a marker: the first line hangs to 0, the marker
+  // right-aligned at 44 px, the text at 64 px.
+  RtfMarkerTabs      = '\fi-960\tqr\tx660\tx960';
+  RtfPageMarker      = '\f1\fs16\cf2';                       // "[71]", 10.5 px #8a8a8a
+  RtfVerseNumber     = '\fs19\cf3';                          // "8", .62em #767676
   RtfHitCurrent      = '\highlight5';
   RtfHitOther        = '\highlight6';
 
@@ -159,6 +169,7 @@ type
     destructor Destroy; override;
     procedure Raw(const S: string);
     procedure Text(const S: string);                 // escaped; counts Length(S)
+    procedure Tab;                                   // \tab - 1 character
     // \par before every paragraph but the first, and a spacer of After of the
     // previous + Before of this one when that is more than 0.
     procedure BeginParagraph(const Style: string; Before, After: Integer);
@@ -189,6 +200,12 @@ begin
   Inc(FChars, Length(S));
 end;
 
+procedure TRtfWriter.Tab;
+begin
+  FOut.Append('\tab ');
+  Inc(FChars);
+end;
+
 procedure TRtfWriter.BeginParagraph(const Style: string; Before, After: Integer);
 var
   Gap: Integer;
@@ -208,7 +225,7 @@ begin
   FPendingAfter := After;
   // \plain resets the character formatting: italic of an epigraph must not
   // leak into the next paragraph. The trailing space ends the control word.
-  FOut.Append('\pard\plain').Append(Style).Append(' ');
+  FOut.Append('\pard\plain').Append(RtfMargin).Append(Style).Append(' ');
 end;
 
 function TRtfWriter.ToRtf: string;
@@ -421,6 +438,7 @@ var
   P: TParagraphContent;
   R: TParagraphRange;
   Marker, Title: string;
+  HasMarker: Boolean;
   I, First, HitAt: Integer;
 begin
   Result.Where := Format('%s:%d', [string(Chapter.Ref.ModuleId), Chapter.Ref.ChapterOrder]);
@@ -479,20 +497,26 @@ begin
       P := Chapter.Paragraphs[I];
       if P.Kind = pkPageMarker then
         Continue;                               // never stored; ignore if it ever comes
-      W.BeginParagraph(StyleFor(P.Kind), SpaceBeforeFor(P.Kind), SpaceAfterFor(P.Kind));
+      // Marker only where a text paragraph starts a page (R6, R4-07).
+      HasMarker := (P.Kind = pkText) and (P.StartPageNumber > 0) and (P.ParagraphOnPage = 1);
+      if HasMarker then
+        W.BeginParagraph(StyleFor(P.Kind) + RtfMarkerTabs, SpaceBeforeFor(P.Kind), SpaceAfterFor(P.Kind))
+      else
+        W.BeginParagraph(StyleFor(P.Kind), SpaceBeforeFor(P.Kind), SpaceAfterFor(P.Kind));
 
       R := Default(TParagraphRange);
       R.LogicalIndex := P.Ref.LogicalIndex;
       R.PageNumber := P.StartPageNumber;
       R.ParagraphOnPage := P.ParagraphOnPage;
-      // Marker only where a text paragraph starts a page (R6, R4-07).
-      if (P.Kind = pkText) and (P.StartPageNumber > 0) and (P.ParagraphOnPage = 1) then
+      if HasMarker then
       begin
-        Marker := Format('[%d] ', [P.StartPageNumber]);
+        Marker := Format('[%d]', [P.StartPageNumber]);
+        W.Tab;
         W.Raw('{' + RtfPageMarker + ' ');
         W.Text(Marker);
         W.Raw('}');
-        R.MarkerLen := Length(Marker);
+        W.Tab;
+        R.MarkerLen := Length(Marker) + 2;
       end;
       R.StartChar := W.Chars;
       R.Len := Length(P.Text);
@@ -559,14 +583,16 @@ begin
 
     for V in Chapter.Verses do
     begin
-      W.BeginParagraph(RtfVerse, 0, SpaceVerseAfter);
+      W.BeginParagraph(RtfVerse + RtfMarkerTabs, 0, SpaceVerseAfter);
       R := Default(TParagraphRange);
       R.LogicalIndex := V.Ref.VerseNumber;
-      Marker := IntToStr(V.Ref.VerseNumber) + ' ';
+      Marker := IntToStr(V.Ref.VerseNumber);
+      W.Tab;
       W.Raw('{' + RtfVerseNumber + ' ');
       W.Text(Marker);
       W.Raw('}');
-      R.MarkerLen := Length(Marker);
+      W.Tab;
+      R.MarkerLen := Length(Marker) + 2;
       R.StartChar := W.Chars;
       R.Len := Length(V.Text);
 

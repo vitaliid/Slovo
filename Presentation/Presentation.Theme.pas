@@ -52,6 +52,9 @@ const
   TextColumnLeftMax     = 64;
   TextColumnLeftPercent = 6;
   TextColumnTop         = 44;
+  // The markers' zone left of the text inside the column (mockup: markers at
+  // left -64px, 44 wide) - the RTF's \li960; constant, unlike the CSS padding.
+  TextMarkerMargin      = 64;
   CrumbsBottom          = 44;
   BannerHeight     = 36;
   NarrowWidth      = 1180;     // below: one side panel at a time (A.5)

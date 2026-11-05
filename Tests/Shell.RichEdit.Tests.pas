@@ -139,7 +139,7 @@ begin
     Assert.AreEqual(Visible(Chapter.Paragraphs[I].Text), TextAt(R.StartChar, R.Len),
       'paragraph ' + IntToStr(R.LogicalIndex));
     if R.MarkerLen > 0 then
-      Assert.AreEqual(Format('[%d] ', [R.PageNumber]), TextAt(R.StartChar - R.MarkerLen, R.MarkerLen));
+      Assert.AreEqual(#9 + Format('[%d]', [R.PageNumber]) + #9, TextAt(R.StartChar - R.MarkerLen, R.MarkerLen));
   end;
 end;
 
@@ -182,7 +182,7 @@ begin
   begin
     R := Doc.Paragraphs[I];
     Assert.AreEqual(Chapter.Verses[I].Text, TextAt(R.StartChar, R.Len));
-    Assert.AreEqual(IntToStr(R.LogicalIndex) + ' ', TextAt(R.StartChar - R.MarkerLen, R.MarkerLen));
+    Assert.AreEqual(#9 + IntToStr(R.LogicalIndex) + #9, TextAt(R.StartChar - R.MarkerLen, R.MarkerLen));
   end;
 end;
 

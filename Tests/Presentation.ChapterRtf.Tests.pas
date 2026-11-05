@@ -148,6 +148,8 @@ begin
               Inc(I);                                    // the delimiter is not text
             if Ctl = 'par' then
               Emit(#13)
+            else if Ctl = 'tab' then
+              Emit(#9)
             else if Ctl = 'u' then
             begin
               Emit(Char(System.Word(N)));
@@ -292,8 +294,8 @@ begin
   Back := ReadBack(Doc.Rtf);
 
   R := Doc.Paragraphs[2];                                  // LogicalIndex 3, page 52.1
-  Assert.AreEqual(5, R.MarkerLen);
-  Assert.AreEqual('[52] ', TextAt(Back, R.StartChar - R.MarkerLen, R.MarkerLen));
+  Assert.AreEqual(6, R.MarkerLen);
+  Assert.AreEqual(#9'[52]'#9, TextAt(Back, R.StartChar - R.MarkerLen, R.MarkerLen));
   Assert.AreEqual(52, R.PageNumber);
   Assert.AreEqual(1, R.ParagraphOnPage);
 
@@ -303,7 +305,7 @@ begin
   Assert.AreEqual(2, R.ParagraphOnPage);
 
   Assert.AreEqual(0, Doc.Paragraphs[1].MarkerLen, 'epigraph never gets a marker');
-  Assert.AreEqual('[53] ', TextAt(Back, Doc.Paragraphs[5].StartChar - 5, 5));
+  Assert.AreEqual(#9'[53]'#9, TextAt(Back, Doc.Paragraphs[5].StartChar - 6, 6));
 end;
 
 procedure TChapterRtfBuilderTests.Book_TitleFromLeadingTitleParagraph;
@@ -547,17 +549,17 @@ begin
   Doc := TChapterRtfBuilder.Build(Chapter, 'Буття', 'Розділ 3', Theme, TVerseHighlightRequest.None);
   Back := ReadBack(Doc.Rtf);
 
-  Assert.IsTrue(Back.Text.StartsWith('Буття'#13#13'Розділ 3'#13#13 + RuleTextFor(Theme) + #13#13'1 А змій'), Back.Text);
+  Assert.IsTrue(Back.Text.StartsWith('Буття'#13#13'Розділ 3'#13#13 + RuleTextFor(Theme) + #13#13#9'1'#9'А змій'), Back.Text);
   Assert.AreEqual(Length(Back.Text), Doc.ExpectedChars);
   Assert.AreEqual(3, Integer(Length(Doc.Paragraphs)));
   for I := 0 to High(Doc.Paragraphs) do
   begin
     R := Doc.Paragraphs[I];
     Assert.AreEqual(Chapter.Verses[I].Ref.VerseNumber, R.LogicalIndex);
-    Assert.AreEqual(IntToStr(R.LogicalIndex) + ' ', TextAt(Back, R.StartChar - R.MarkerLen, R.MarkerLen));
+    Assert.AreEqual(#9 + IntToStr(R.LogicalIndex) + #9, TextAt(Back, R.StartChar - R.MarkerLen, R.MarkerLen));
     Assert.AreEqual(Chapter.Verses[I].Text, TextAt(Back, R.StartChar, R.Len));
   end;
-  Assert.AreEqual(3, Doc.Paragraphs[2].MarkerLen, '"10 "');
+  Assert.AreEqual(4, Doc.Paragraphs[2].MarkerLen, 'tab "10" tab');
   Assert.Contains(Doc.Rtf, RtfVerse);
 end;
 
