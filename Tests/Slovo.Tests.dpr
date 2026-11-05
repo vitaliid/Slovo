@@ -31,6 +31,7 @@ uses
   Presentation.MainViewModel in '..\Presentation\Presentation.MainViewModel.pas',
   Presentation.Theme in '..\Presentation\Presentation.Theme.pas',
   Presentation.ChapterRtf in '..\Presentation\Presentation.ChapterRtf.pas',
+  Presentation.SearchResults in '..\Presentation\Presentation.SearchResults.pas',
   Shell.RichEdit in '..\Vcl\Shell.RichEdit.pas',
   Slovo.TestSupport in 'Slovo.TestSupport.pas',
   Core.Domain.Tests in 'Core.Domain.Tests.pas',
@@ -42,6 +43,7 @@ uses
   Infra.LoggerAndSettings.Tests in 'Infra.LoggerAndSettings.Tests.pas',
   Presentation.MainViewModel.Tests in 'Presentation.MainViewModel.Tests.pas',
   Presentation.ChapterRtf.Tests in 'Presentation.ChapterRtf.Tests.pas',
+  Presentation.SearchResults.Tests in 'Presentation.SearchResults.Tests.pas',
   Shell.RichEdit.Tests in 'Shell.RichEdit.Tests.pas';
 
 var

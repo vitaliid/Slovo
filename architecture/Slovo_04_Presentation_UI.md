@@ -92,7 +92,9 @@ Shelf і Toc — **одна й та сама** `TVirtualStringTree` у режи�
 
 Рядок результату — **фіксованої висоти** (R6, R4-37): реф (`Патріархи і пророки · Розділ 3 · 71.2` або `Буття 22:8`) і сніпет у два рядки з `…`, збіги в сніпеті напівжирні `#2f5f95` (позиції — `TSearchHighlight`). Список має **дві секції** — «Книги» і «Біблія» (B-27); секція Біблії **групується за перекладом** (R6, B-31), кожна група — у своєму порядку релевантності: ранги різних мовних таблиць непорівнювані. Перемикача «за порядком у книзі» в MVP немає (R6, R4-44). Клік → **Read** з підсвіткою збігів і прокруткою до абзацу (E-08).
 
-Панель відкривається кнопкою 🔍 або клавішею `/` (фокус у поле).
+Панель відкривається кнопкою 🔍 або клавішею `/` (фокус у поле); видимість — `[Ui] RightPanel` (E-06).
+
+**Реалізація (Sprint 2, 2026-11-05).** Рядки видачі (реф, сніпет шматками між `Highlights`, групи перекладів, число для рядка стану) будує `Presentation.SearchResults` — без VCL, з тестами; малює `Vcl\Shell.SearchResults` (C.5). Скоуп і прапорці поки **штатні VCL-контроли** (дві радіокнопки, два `TCheckBox`) — так само, як дерево спершу було в стандартному вигляді; пігулка-сегмент і квадратні прапорці макета — разом із виглядом дерева за макетом. Поки хедера немає (E-15), кнопку 🔍 заміняє пункт меню «Вигляд → Пошук ( / )». `/` ловиться за символом (`OnKeyPress`), тож працює в будь-якій розкладці. Зміна скоупу чи прапорців пошук не перезапускає — лише `Enter`.
 
 ### A.5. Режим «Тиша» і адаптивність
 
@@ -628,11 +630,16 @@ end;
     Presentation.Localization.pas   -- ILocalizer, TFileLocalizer; InitLocalization, Localizer, L(key), L(key, args),
                                     --   LanguageName; UILanguageCodes (R3-25, R6). Лог — лише проблеми
     Presentation.Theme.pas          -- кольори, розміри — константи A.1 (E-14); TReaderTheme (C.4)
-    Presentation.ChapterRtf.pas     -- TChapterRtfBuilder (C.4); uses System.*, Core.Domain — без Vcl (наступний крок)
+    Presentation.ChapterRtf.pas     -- TChapterRtfBuilder (C.4); uses System.*, Core.Domain — без Vcl
+    Presentation.SearchResults.pas  -- рядки видачі з TSearchReply (A.4): секції, групи перекладів, реф, жирні шматки; без Vcl
     Presentation.Fonts.pas          -- TPrivateFonts: AddFontResourceEx FR_PRIVATE, запасний Georgia (E-04)
   Vcl/
     Shell.MainForm.pas/.dfm         -- TMainForm = class(TForm, IMainView); панелі, VST, RichEdit, хедер
                                     --   (зараз — тимчасова оболонка для перевірки старту; Bind/Unbind остаточні)
+    Shell.LibraryTree.pas           -- дерево бібліотеки на VST (A.3)
+    Shell.ChapterList.pas           -- полиця й зміст на VST (A.2, C.5)
+    Shell.SearchResults.pas         -- видача пошуку на VST (A.4, C.5)
+    Shell.RichEdit.pas              -- RTF у TRichEdit: завантаження, довжина, прокрутка (C.4)
     Shell.ErrorBannerFrame.pas/.dfm -- TErrorBannerFrame (C-10, E-15) (наступний крок)
   lang/                             -- uk.lang, ru.lang, en.lang (C.3); post-build копіює до EXE
   Tests/                            -- Slovo.Tests.dproj (DUnitX)

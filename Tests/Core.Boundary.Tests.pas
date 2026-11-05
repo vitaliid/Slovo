@@ -108,13 +108,19 @@ end;
 // Slovo_04 C.1: the ViewModel compiles without Vcl.* and knows only Core.
 procedure TCoreBoundaryTests.ViewModel_UsesNoVclOrInfrastructure;
 var
-  FileName, Violations: string;
+  FileName, Path, Violations: string;
+const
+  VclFreeUnits: array[0..1] of string = ('Presentation.MainViewModel.pas', 'Presentation.SearchResults.pas');
 begin
-  FileName := TPath.Combine(TPath.Combine(RepoDir, 'Presentation'), 'Presentation.MainViewModel.pas');
-  Assert.IsTrue(TFile.Exists(FileName), FileName);
-  Violations := FindViolations([FileName],
-    ['vcl.', 'winapi.', 'fmx.', 'data.', 'firedac.', 'infrastructure.', 'infra.', 'app.']);
-  Assert.IsEmpty(Violations, 'ViewModel uses forbidden units:' + Violations);
+  // Presentation.SearchResults (A.4) is held to the same rule: tested without a form.
+  for FileName in VclFreeUnits do
+  begin
+    Path := TPath.Combine(TPath.Combine(RepoDir, 'Presentation'), FileName);
+    Assert.IsTrue(TFile.Exists(Path), Path);
+    Violations := FindViolations([Path],
+      ['vcl.', 'winapi.', 'fmx.', 'data.', 'firedac.', 'infrastructure.', 'infra.', 'app.']);
+    Assert.IsEmpty(Violations, FileName + ' uses forbidden units:' + Violations);
+  end;
 end;
 
 initialization

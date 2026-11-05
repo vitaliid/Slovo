@@ -89,6 +89,7 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <DCCReference Include="..\Presentation\Presentation.MainViewModel.pas"/>
         <DCCReference Include="..\Presentation\Presentation.Theme.pas"/>
         <DCCReference Include="..\Presentation\Presentation.ChapterRtf.pas"/>
+        <DCCReference Include="..\Presentation\Presentation.SearchResults.pas"/>
         <DCCReference Include="..\Vcl\Shell.RichEdit.pas"/>
         <DCCReference Include="Slovo.TestSupport.pas"/>
         <DCCReference Include="Core.Domain.Tests.pas"/>
@@ -100,6 +101,7 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <DCCReference Include="Infra.LoggerAndSettings.Tests.pas"/>
         <DCCReference Include="Presentation.MainViewModel.Tests.pas"/>
         <DCCReference Include="Presentation.ChapterRtf.Tests.pas"/>
+        <DCCReference Include="Presentation.SearchResults.Tests.pas"/>
         <DCCReference Include="Shell.RichEdit.Tests.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

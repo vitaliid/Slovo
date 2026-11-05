@@ -6,7 +6,9 @@
   chapter as one RTF document in a TRichEdit (E-01) with the character-count
   check, zoom (E-11), the ‹ › bar, the shelf and the table of contents
   (Shell.ChapterList, C.5); the library tree on the left (Shell.LibraryTree,
-  A.3). Next: the search panel (A.4), the header and the error banner (E-15).
+  A.3); the search panel on the right (A.4, Shell.SearchResults) with F3 /
+  Shift+F3 over the matches of the open chapter (A.6). Next: the header and the
+  error banner (E-15).
 
   No interface literal in the .dfm (E-05): every caption comes from
   ApplyLocalization. *)
@@ -33,8 +35,10 @@ uses
   Presentation.Theme,
   Presentation.ChapterRtf,
   Presentation.Views,
+  Presentation.SearchResults,
   Shell.LibraryTree,
-  Shell.ChapterList;
+  Shell.ChapterList,
+  Shell.SearchResults;
 
 type
   // The last chapter shown - re-rendered when the language changes ("Розділ N").
@@ -121,6 +125,40 @@ type
     procedure CrumbClick(Sender: TObject);
     procedure CrumbMouseEnter(Sender: TObject);
     procedure CrumbMouseLeave(Sender: TObject);
+
+  private
+    // Right panel (A.4), created in code like the left one; the status line
+    // and the list are the form's (C.1: the empty query / scope never reach
+    // the ViewModel).
+    FRightPanel: TPanel;
+    FSearchTitle: TLabel;
+    FSearchEdit: TEdit;
+    FScopeTitle: TLabel;
+    FScopeAll: TRadioButton;
+    FScopeChecked: TRadioButton;
+    FExactPhrase: TCheckBox;
+    FWordForms: TCheckBox;
+    FSearchStatus: TLabel;
+    FResultList: TSearchResultList;
+    miSearch: TMenuItem;
+    miSearchSeparator: TMenuItem;
+    FLastReply: TSearchReply;
+    FHasReply: Boolean;
+    FSearchDone: Boolean;
+    FSearchStatusKey: string;            // '' = empty line; kept to re-localize
+    FSearchStatusArg: Integer;           // -1 = the key takes no argument
+    procedure CreateRightPanel;
+    procedure SetRightPanelVisible(Value: Boolean);
+    procedure OpenSearch;
+    procedure RunSearch;
+    procedure ShowSearchStatus(const Key: string; Arg: Integer = -1);
+    procedure ShowSearchReply(const Reply: TSearchReply);
+    procedure SearchResultOpened(Section: TResultSectionKind; Index: Integer);
+    procedure SearchEditKeyPress(Sender: TObject; var Key: Char);
+    procedure miSearchClick(Sender: TObject);
+    procedure FormKeyPress(Sender: TObject; var Key: Char);
+    procedure MoveHit(Delta: Integer);
+    function FocusReaderOrList: Boolean;
 
     procedure ApplyLocalization;
     procedure UpdateStatus;
@@ -210,6 +248,8 @@ begin
   redReader.WindowProc := ReaderWndProc;
 
   CreateLeftPanel;
+  CreateRightPanel;
+  OnKeyPress := FormKeyPress;
 
   FChapterList := TChapterList.Create(Self, pnlColumn,
     function(Value: Integer): Integer
@@ -227,6 +267,7 @@ destructor TMainForm.Destroy;
 begin
   FChapterList.Free;                     // the controls themselves are owned by the form
   FLibraryTree.Free;
+  FResultList.Free;
   inherited;
 end;
 
@@ -252,6 +293,122 @@ begin
   FLibraryTree.OnCheck := LibraryNodeChecked;
 end;
 
+// A.4, mockup "Читання v2": 320 px, a 1 px line on the left, padding 26 22;
+// from the top - "ПОШУК", the field (EB Garamond 19 px) over a line, "ДЕ ШУКАТИ"
+// and the scope, the two options, a line, the status, the list. Standard VCL
+// controls for now; the mockup's pill and square boxes come with the tree's look.
+procedure TMainForm.CreateRightPanel;
+var
+  Order: Integer;
+  Content: TPanel;
+
+  procedure Place(Control: TControl; Left, Top, Right, Bottom: Integer);
+  begin
+    Inc(Order);
+    Control.Parent := Content;
+    Control.Top := Order * 1000;         // alTop keeps the order of Top
+    Control.Align := alTop;
+    Control.AlignWithMargins := True;
+    Control.Margins.SetBounds(ScaleValue(Left), ScaleValue(Top), ScaleValue(Right), ScaleValue(Bottom));
+  end;
+
+  function NewCaption(Px: Integer): TLabel;
+  begin
+    Result := TLabel.Create(Self);
+    Result.ShowAccelChar := False;
+    Result.Font.Height := -ScaleValue(Px);
+    Result.Font.Color := ColorMuted;
+  end;
+
+  function NewLine(Color: TColor): TPanel;
+  begin
+    Result := TPanel.Create(Self);
+    Result.BevelOuter := bvNone;
+    Result.ParentBackground := False;
+    Result.Color := Color;
+    Result.Height := 1;
+  end;
+
+var
+  Border: TPanel;
+begin
+  Order := 0;
+  FRightPanel := TPanel.Create(Self);
+  FRightPanel.Parent := Self;
+  FRightPanel.Align := alRight;
+  FRightPanel.Width := ScaleValue(RightPanelWidth);
+  FRightPanel.BevelOuter := bvNone;
+  FRightPanel.ParentBackground := False;
+  FRightPanel.Color := ColorBackground;
+
+  Border := NewLine(TColor($00E6E6E6));  // rgba(0,0,0,.09)
+  Border.Parent := FRightPanel;
+  Border.Align := alLeft;
+  Border.Width := 1;
+  // The line runs the full height only beside a client panel: VCL lays out
+  // alTop children before alLeft ones.
+  Content := TPanel.Create(Self);
+  Content.Parent := FRightPanel;
+  Content.Align := alClient;
+  Content.BevelOuter := bvNone;
+  Content.ParentBackground := False;
+  Content.Color := ColorBackground;
+
+  FSearchTitle := NewCaption(11);
+  Place(FSearchTitle, 22, 26, 22, 16);
+
+  FSearchEdit := TEdit.Create(Self);
+  FSearchEdit.BorderStyle := bsNone;
+  FSearchEdit.ParentColor := False;
+  FSearchEdit.Color := ColorBackground;
+  FSearchEdit.Font.Color := ColorHeading;
+  FSearchEdit.OnKeyPress := SearchEditKeyPress;
+  Place(FSearchEdit, 22, 0, 22, 0);
+  Place(NewLine(TColor($00D1D1D1)), 22, 9, 22, 0);   // rgba(0,0,0,.18)
+
+  FScopeTitle := NewCaption(11);
+  Place(FScopeTitle, 22, 20, 22, 8);
+  FScopeAll := TRadioButton.Create(Self);
+  Place(FScopeAll, 22, 0, 22, 4);
+  FScopeChecked := TRadioButton.Create(Self);
+  Place(FScopeChecked, 22, 0, 22, 0);
+
+  FExactPhrase := TCheckBox.Create(Self);
+  Place(FExactPhrase, 22, 20, 22, 0);
+  FWordForms := TCheckBox.Create(Self);
+  FWordForms.ShowHint := True;
+  Place(FWordForms, 22, 8, 22, 0);
+
+  Place(NewLine(TColor($00E6E6E6)), 22, 24, 22, 0);
+  FSearchStatus := NewCaption(11);
+  Place(FSearchStatus, 22, 14, 22, 8);
+
+  FResultList := TSearchResultList.Create(Self, Content,
+    function(Value: Integer): Integer
+    begin
+      Result := ScaleValue(Value);
+    end);
+  FResultList.Control.AlignWithMargins := True;
+  FResultList.Control.Margins.SetBounds(ScaleValue(9), 0, ScaleValue(9), ScaleValue(8));
+  FResultList.SectionCaption := function(Section: TResultSectionKind): string
+    begin
+      if Section = rsBooks then
+        Result := L('search.section.books')
+      else
+        Result := L('search.section.bible');
+    end;
+  FResultList.OnOpen := SearchResultOpened;
+  FSearchStatusArg := -1;
+
+  // The menu item of the 🔍 button until the header exists (E-15 step).
+  miSearch := TMenuItem.Create(Self);
+  miSearch.OnClick := miSearchClick;
+  miSearchSeparator := TMenuItem.Create(Self);
+  miSearchSeparator.Caption := cLineCaption;
+  miView.Insert(0, miSearchSeparator);
+  miView.Insert(0, miSearch);
+end;
+
 { IMainView }
 
 procedure TMainForm.Bind(ViewModel: TMainViewModel; const Settings: ISettings;
@@ -271,7 +428,7 @@ begin
   FOnViewChanged := procedure(View: TReaderView) begin ShowView(View); end;
   FOnChapterLoaded := procedure(Args: TChapterLoadedArgs) begin RenderChapter(Args); end;
   FOnBibleChapterLoaded := procedure(Args: TBibleChapterLoadedArgs) begin RenderBibleChapter(Args); end;
-  FOnSearchCompleted := procedure(Reply: TSearchReply) begin end;
+  FOnSearchCompleted := procedure(Reply: TSearchReply) begin ShowSearchReply(Reply); end;
   FOnErrorOccurred := procedure(Error: TResultError) begin ShowError(Error); end;
 
   FViewModel.OnLibraryChanged.Add(FOnLibraryChanged);
@@ -285,6 +442,14 @@ begin
   Font.Name := FTheme.UiFont;
   FLibraryTree.ApplyFont(FTheme.UiFont);
   FChapterList.ApplyFonts(FTheme.TextFont, FTheme.UiFont);
+  FResultList.ApplyFonts(FTheme.TextFont, FTheme.UiFont);
+  FSearchEdit.Font.Name := FTheme.TextFont;
+  FSearchEdit.Font.Height := -ScaleValue(19);
+  FScopeAll.Checked := FSettings.GetSearchWholeLibrary;
+  FScopeChecked.Checked := not FScopeAll.Checked;
+  FExactPhrase.Checked := FSettings.GetExactPhrase;
+  FWordForms.Checked := FSettings.GetWordForms;
+  FRightPanel.Visible := FSettings.GetRightPanelVisible;
   FZoomStep := EnsureRange(FSettings.GetZoomStep, MinZoomStep, MaxZoomStep);
   PrepareReader(redReader);
   SetZoomPx(redReader, ZoomPx(FZoomStep));
@@ -311,6 +476,7 @@ begin
   else
     FSettings.SetWindowBounds(BoundsRect, WindowState = wsMaximized);
   FSettings.SetZoomStep(FZoomStep);
+  FSettings.SetRightPanelVisible(FRightPanel.Visible);
   FSettings.Save;
   FViewModel := nil;
 end;
@@ -355,6 +521,20 @@ begin
 
   FLibraryTitle.Caption := L('library.title');
   FLibraryTree.Invalidate;
+
+  miSearch.Caption := L('header.search');
+  FSearchTitle.Caption := L('search.title').ToUpper;
+  FSearchEdit.TextHint := L('search.placeholder');
+  FScopeTitle.Caption := L('search.where').ToUpper;
+  FScopeAll.Caption := L('search.scope.all');
+  FExactPhrase.Caption := L('search.exactPhrase');
+  FWordForms.Caption := L('search.wordForms');
+  FWordForms.Hint := L('search.wordForms.hint');
+  ShowSearchStatus(FSearchStatusKey, FSearchStatusArg);
+  if FHasReply then
+    ShowSearchReply(FLastReply)          // "Розділ N" in the reference lines
+  else
+    FResultList.Invalidate;
   actPrevChapter.Caption := '‹  ' + L('read.prevChapter');
   actNextChapter.Caption := L('read.nextChapter') + '  ›';
   UpdateStatus;
@@ -362,6 +542,7 @@ end;
 
 procedure TMainForm.UpdateStatus;
 begin
+  FScopeChecked.Caption := L('search.scope.checked', [FCheckedCount]);
   lblStatus.Caption := Format('%s: %d  ·  %s  ·  %d %%', [L('library.title'),
     Length(FViewModel.Catalog.Modules), L('search.scope.checked', [FCheckedCount]),
     Round(ZoomPx(FZoomStep) / BaseTextPx * 100)]);
@@ -873,6 +1054,179 @@ begin
   Handled := True;
 end;
 
+{ search (A.4, C.1) }
+
+procedure TMainForm.SetRightPanelVisible(Value: Boolean);
+begin
+  FRightPanel.Visible := Value;
+  FSettings.SetRightPanelVisible(Value);
+  pnlCenterResize(nil);
+end;
+
+procedure TMainForm.OpenSearch;
+begin
+  if not FRightPanel.Visible then
+    SetRightPanelVisible(True);
+  if FSearchEdit.CanFocus then
+  begin
+    FSearchEdit.SetFocus;
+    FSearchEdit.SelectAll;
+  end;
+end;
+
+procedure TMainForm.miSearchClick(Sender: TObject);
+begin
+  if FRightPanel.Visible then
+  begin
+    SetRightPanelVisible(False);
+    FocusReaderOrList;
+  end
+  else
+    OpenSearch;
+end;
+
+procedure TMainForm.ShowSearchStatus(const Key: string; Arg: Integer);
+begin
+  FSearchStatusKey := Key;
+  FSearchStatusArg := Arg;
+  if Key = '' then
+    FSearchStatus.Caption := ''
+  else if Arg >= 0 then
+    FSearchStatus.Caption := L(Key, [Arg]).ToUpper
+  else
+    FSearchStatus.Caption := L(Key).ToUpper;
+end;
+
+// C.1: the form checks the empty query and the empty scope itself (R4-24) -
+// a status line, never the banner; the search itself is synchronous (C-21).
+procedure TMainForm.RunSearch;
+begin
+  if Trim(StringReplace(FSearchEdit.Text, #$00A0, ' ', [rfReplaceAll])) = '' then
+  begin
+    ShowSearchStatus('search.enterWord');
+    Exit;
+  end;
+  if FScopeChecked.Checked and (FCheckedCount = 0) then
+  begin
+    ShowSearchStatus('search.checkSome');
+    Exit;
+  end;
+  ShowSearchStatus('search.busy');
+  FSearchStatus.Update;                  // a synchronous WM_PAINT, not ProcessMessages
+  FSearchDone := False;
+  Screen.Cursor := crHourGlass;
+  try
+    FViewModel.Search(FSearchEdit.Text, FScopeAll.Checked, FExactPhrase.Checked, FWordForms.Checked);
+  finally
+    Screen.Cursor := crDefault;
+  end;
+  if not FSearchDone then
+    ShowSearchStatus('');                // an error: the banner (status bar for now) says it
+end;
+
+procedure TMainForm.ShowSearchReply(const Reply: TSearchReply);
+begin
+  FSearchDone := True;
+  FLastReply := Reply;
+  FHasReply := True;
+  FResultList.Show(BuildResultSections(Reply, FViewModel.Catalog,
+    function(ChapterOrder: Integer): string
+    begin
+      Result := L('read.chapter', [ChapterOrder]);
+    end));
+  // E-12: "Збіги: 172", or "Показано перші 200" when any page was cut.
+  if ResultTruncated(Reply) then
+    ShowSearchStatus('search.truncated', DefaultMaxResults)
+  else
+    ShowSearchStatus('search.hits', ResultCount(Reply));
+end;
+
+procedure TMainForm.SearchResultOpened(Section: TResultSectionKind; Index: Integer);
+var
+  Queued: TThreadProcedure;
+begin
+  // Opening a chapter moves the focus; do it after the click has finished.
+  Queued := procedure
+    begin
+      if Section = rsBooks then
+      begin
+        if Index <= High(FLastReply.Books.Items) then
+          FViewModel.OpenSearchResult(FLastReply.Books.Items[Index].Ref);
+      end
+      else if Index <= High(FLastReply.Bible.Items) then
+        FViewModel.OpenSearchResult(FLastReply.Bible.Items[Index].Ref);
+    end;
+  TThread.ForceQueue(nil, Queued);
+end;
+
+procedure TMainForm.SearchEditKeyPress(Sender: TObject; var Key: Char);
+begin
+  case Key of
+    #13:
+      begin
+        Key := #0;                       // no beep
+        RunSearch;
+      end;
+    #27:
+      begin
+        Key := #0;
+        FocusReaderOrList;               // A.6: Esc takes the focus off the field
+      end;
+  end;
+end;
+
+function TMainForm.FocusReaderOrList: Boolean;
+begin
+  Result := True;
+  if redReader.Visible and redReader.CanFocus then
+    redReader.SetFocus
+  else if FChapterList.Host.Visible then
+    FChapterList.FocusList
+  else
+    Result := False;
+end;
+
+// F3 / Shift+F3 (A.6): the next / previous paragraph with a match; the RTF is
+// rebuilt with the new Focus (E-01) and scrolled to it.
+procedure TMainForm.MoveHit(Delta: Integer);
+
+  function Step(Focus, Count: Integer): Integer;
+  begin
+    if Focus < 0 then
+    begin
+      if Delta > 0 then
+        Result := 0
+      else
+        Result := Count - 1;
+    end
+    else
+      Result := (Focus + Delta + Count) mod Count;
+  end;
+
+var
+  Args: TChapterLoadedArgs;
+  BibleArgs: TBibleChapterLoadedArgs;
+begin
+  if FViewModel.View <> rvRead then
+    Exit;
+  case FShown of
+    scBook:
+      if Length(FLastChapter.Hits) > 0 then
+      begin
+        Args := FLastChapter;
+        Args.Focus := Step(Args.Focus, Length(Args.Hits));
+        RenderChapter(Args);
+      end;
+    scBible:
+      if Length(FLastBibleChapter.Hits) > 0 then
+      begin
+        BibleArgs := FLastBibleChapter;
+        BibleArgs.Focus := Step(BibleArgs.Focus, Length(BibleArgs.Hits));
+        RenderBibleChapter(BibleArgs);
+      end;
+  end;
+end;
+
 { errors }
 
 procedure TMainForm.ShowError(Error: TResultError);
@@ -892,12 +1246,22 @@ procedure TMainForm.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftSta
 begin
   if FViewModel = nil then
     Exit;
-  // A.6: the tree keeps its own arrows and Backspace (expand, collapse, parent).
-  if ActiveControl = FLibraryTree.Control then
+  if Key = vkF3 then
+  begin
+    if Shift = [ssShift] then
+      MoveHit(-1)
+    else if Shift = [] then
+      MoveHit(1);
+    Key := 0;
+    Exit;
+  end;
+  // A.6: the trees keep their own arrows and Backspace (expand, collapse, parent);
+  // the search field keeps all its keys.
+  if (ActiveControl = FLibraryTree.Control) or (ActiveControl = FSearchEdit) then
     Exit;
   case Key of
     vkLeft, vkRight:
-      if (FViewModel.View = rvRead) and (Shift = []) then
+      if (FViewModel.View = rvRead) and (Shift = []) and (ActiveControl <> FResultList.Control) then
       begin
         if Key = vkLeft then
           FViewModel.PreviousChapter
@@ -910,6 +1274,17 @@ begin
         GoUp;
         Key := 0;
       end;
+  end;
+end;
+
+// A.6: "/" opens the search and puts the focus into the field - by the
+// character, so it works whatever the keyboard layout.
+procedure TMainForm.FormKeyPress(Sender: TObject; var Key: Char);
+begin
+  if (Key = '/') and (ActiveControl <> FSearchEdit) and (FViewModel <> nil) then
+  begin
+    Key := #0;
+    OpenSearch;
   end;
 end;
 
