@@ -54,6 +54,7 @@ const
   BannerHeight     = 36;
   NarrowWidth      = 1180;     // below: one side panel at a time (A.5)
   VeryNarrowWidth  = 780;      // below: the left panel hides
+  SilencePeekStrip = 28;       // «Тиша»: the mouse in this top strip brings the header back
 
   // Text size (E-11): px = 20.5 + 1.5 * Step, Step -4..+6
   BaseTextPx       = 20.5;

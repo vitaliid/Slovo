@@ -10,7 +10,7 @@
   Shift+F3 over the matches of the open chapter (A.6); the header ☰ · SLOVO ·
   A− 100% A+ · «Тиша» · 🔍 · ⋯ and the error banner under it (E-15,
   Shell.ErrorBannerFrame). There is no menu bar: its items open from ⋯ (pmMain).
-  Next: «Тиша» and the narrow-window rules (A.5).
+  «Тиша» and the narrow-window rules (A.5) - ApplyLayout.
 
   No interface literal in the .dfm (E-05): every caption comes from
   ApplyLocalization. *)
@@ -31,6 +31,7 @@ uses
   Vcl.ExtCtrls,
   Vcl.ComCtrls,
   Vcl.ActnList,
+  Vcl.AppEvnts,
   Core.Domain,
   Core.Contracts,
   Presentation.MainViewModel,
@@ -148,7 +149,6 @@ type
     procedure SearchEditWndProc(var Message: TMessage);
     procedure SearchEditChange(Sender: TObject);
     procedure CreateRightPanel;
-    procedure SetRightPanelVisible(Value: Boolean);
     procedure OpenSearch;
     procedure RunSearch;
     procedure ShowSearchStatus(const Key: string; Arg: Integer = -1);
@@ -177,7 +177,30 @@ type
     procedure LibraryButtonClick(Sender: TObject);
     procedure SearchButtonClick(Sender: TObject);
     procedure MoreButtonClick(Sender: TObject);
-    procedure SetLeftPanelVisible(Value: Boolean);
+
+  private
+    // A.5, as the mockup: the user's choice of the side panels (settings.ini)
+    // and what the window shows are apart - a narrow window hides a panel only
+    // while it is narrow (< 1180: the right one, < 780: the left one), a panel
+    // opened by its button in a narrow window stays ("forced"), below 1180 the
+    // panel opened last wins. «Тиша» hides the header and both panels; the
+    // mouse in the top 28 px brings the header back in the flow (R4-36).
+    FLeftWanted: Boolean;
+    FRightWanted: Boolean;
+    FLeftForced: Boolean;
+    FRightForced: Boolean;
+    FRightLast: Boolean;                 // below 1180 the right panel was opened last
+    FSilence: Boolean;
+    FPeek: Boolean;
+    FAppEvents: TApplicationEvents;
+    procedure ApplyLayout;
+    procedure SetLeftWanted(Value: Boolean);
+    procedure SetRightWanted(Value: Boolean);
+    procedure SetSilence(Value: Boolean);
+    procedure SilenceButtonClick(Sender: TObject);
+    procedure ScopeChanged(Sender: TObject);
+    procedure FormResized(Sender: TObject);
+    procedure AppMessage(var Msg: TMsg; var Handled: Boolean);
 
   private
     // Navigator of the matches in the open chapter (E-08, A.6), centred between
@@ -297,6 +320,10 @@ begin
   CreateRightPanel;
   CreateHitNav;
   OnKeyPress := FormKeyPress;
+  OnResize := FormResized;
+  FScope.OnChange := ScopeChanged;
+  FAppEvents := TApplicationEvents.Create(Self);
+  FAppEvents.OnMessage := AppMessage;
 
   FChapterList := TChapterList.Create(Self, pnlColumn,
     function(Value: Integer): Integer
@@ -375,11 +402,9 @@ begin
   FZoomInButton := NewButton(fgNone, actZoomInExecute);
   FZoomInButton.Caption := 'A+';
   FZoomInButton.FontPx := 15;
-  // «Тиша» (A.5) comes with the next step; the pill already stands in its place.
-  FSilenceButton := NewButton(fgNone, nil);
+  FSilenceButton := NewButton(fgNone, SilenceButtonClick);
   FSilenceButton.Pill := True;
   FSilenceButton.FontPx := 12;
-  FSilenceButton.Enabled := False;
   FSearchButton := NewButton(fgSearch, SearchButtonClick);
   FMoreButton := NewButton(fgMore, MoreButtonClick);
   FHeader.OnResize := HeaderResize;
@@ -426,16 +451,137 @@ end;
 
 procedure TMainForm.LibraryButtonClick(Sender: TObject);
 begin
-  SetLeftPanelVisible(not FLeftPanel.Visible);
+  SetLeftWanted(not FLeftPanel.Visible);
 end;
 
-procedure TMainForm.SetLeftPanelVisible(Value: Boolean);
+{ A.5: side panels, narrow window, «Тиша» }
+
+procedure TMainForm.SetLeftWanted(Value: Boolean);
 begin
-  if not Value and FLeftPanel.ContainsControl(ActiveControl) then
-    FocusReaderOrList;
-  FLeftPanel.Visible := Value;
+  FLeftWanted := Value;
+  if Value then
+  begin
+    FLeftForced := True;                 // shown even below 780 until the window widens
+    FRightForced := False;
+    FRightLast := False;
+  end;
   FSettings.SetLeftPanelVisible(Value);
+  FSilence := False;
+  FPeek := False;
+  ApplyLayout;
+end;
+
+procedure TMainForm.SetRightWanted(Value: Boolean);
+begin
+  FRightWanted := Value;
+  FRightForced := Value;                 // shown even below 1180 until the window widens
+  if Value then
+    FRightLast := True;
+  FSettings.SetRightPanelVisible(Value);
+  FSilence := False;
+  FPeek := False;
+  ApplyLayout;
+end;
+
+procedure TMainForm.SetSilence(Value: Boolean);
+begin
+  if FSilence = Value then
+    Exit;
+  FSilence := Value;
+  FPeek := False;
+  ApplyLayout;
+end;
+
+procedure TMainForm.SilenceButtonClick(Sender: TObject);
+begin
+  SetSilence(not FSilence);
+end;
+
+// A.5: "Відмічені книги" opens the left panel - the check boxes are there.
+procedure TMainForm.ScopeChanged(Sender: TObject);
+begin
+  if not FScope.WholeLibrary and not FLeftPanel.Visible then
+    SetLeftWanted(True);
+end;
+
+procedure TMainForm.FormResized(Sender: TObject);
+begin
+  ApplyLayout;
+end;
+
+procedure TMainForm.ApplyLayout;
+var
+  W: Integer;
+  ShowLeft, ShowRight, ShowHeader: Boolean;
+
+  function Loses(Panel: TWinControl; Shown: Boolean): Boolean;
+  begin
+    Result := Panel.Visible and not Shown and Panel.ContainsControl(ActiveControl);
+  end;
+
+begin
+  if FSettings = nil then                // before Bind: nothing is decided yet
+    Exit;
+  W := ClientWidth;
+  if W >= ScaleValue(NarrowWidth) then
+    FRightForced := False;
+  if W >= ScaleValue(VeryNarrowWidth) then
+    FLeftForced := False;
+  ShowLeft := FLeftWanted and ((W >= ScaleValue(VeryNarrowWidth)) or FLeftForced) and not FSilence;
+  ShowRight := FRightWanted and ((W >= ScaleValue(NarrowWidth)) or FRightForced) and not FSilence;
+  if ShowLeft and ShowRight and (W < ScaleValue(NarrowWidth)) then
+    if FRightLast then
+      ShowLeft := False
+    else
+      ShowRight := False;
+  ShowHeader := not FSilence or FPeek;
+
+  // The focus must not stay in a control that goes away.
+  if Loses(FLeftPanel, ShowLeft) or Loses(FRightPanel, ShowRight) or Loses(FHeader, ShowHeader) then
+    FocusReaderOrList;
+
+  DisableAlign;
+  try
+    if FHeader.Visible <> ShowHeader then
+    begin
+      FHeader.Top := 0;                  // alTop keeps the order of Top: above the banner
+      FHeader.Visible := ShowHeader;
+    end;
+    FLeftPanel.Visible := ShowLeft;
+    FRightPanel.Visible := ShowRight;
+  finally
+    EnableAlign;
+  end;
+
+  if FSilence then
+    FSilenceButton.Caption := L('header.silence.exit')
+  else
+    FSilenceButton.Caption := L('header.silence');
+  HeaderResize(nil);
   pnlCenterResize(nil);
+end;
+
+// «Тиша»: TApplicationEvents.OnMessage sees WM_MOUSEMOVE over every child,
+// where TForm.OnMouseMove does not (A.5).
+procedure TMainForm.AppMessage(var Msg: TMsg; var Handled: Boolean);
+var
+  P: TPoint;
+begin
+  if not FSilence or (Msg.message <> WM_MOUSEMOVE) then
+    Exit;
+  P := ScreenToClient(Msg.pt);
+  if (P.X < 0) or (P.X >= ClientWidth) then
+    Exit;
+  if not FPeek and (P.Y >= 0) and (P.Y < ScaleValue(SilencePeekStrip)) then
+  begin
+    FPeek := True;
+    ApplyLayout;
+  end
+  else if FPeek and (P.Y >= FHeader.Height) then
+  begin
+    FPeek := False;
+    ApplyLayout;
+  end;
 end;
 
 // The former menu bar, under ⋯: aligned to the button's right edge.
@@ -652,13 +798,14 @@ begin
   FScope.WholeLibrary := FSettings.GetSearchWholeLibrary;
   FExactPhrase.Checked := FSettings.GetExactPhrase;
   FWordForms.Checked := FSettings.GetWordForms;
-  FLeftPanel.Visible := FSettings.GetLeftPanelVisible;
-  FRightPanel.Visible := FSettings.GetRightPanelVisible;
+  FLeftWanted := FSettings.GetLeftPanelVisible;
+  FRightWanted := FSettings.GetRightPanelVisible;
   FZoomStep := EnsureRange(FSettings.GetZoomStep, MinZoomStep, MaxZoomStep);
   PrepareReader(redReader);
   SetZoomPx(redReader, ZoomPx(FZoomStep));
   ApplyLocalization;
   RestoreGeometry;
+  ApplyLayout;
 
   FViewModel.Start;                      // phase 1: position or Shelf (E-16)
 end;
@@ -680,8 +827,8 @@ begin
   else
     FSettings.SetWindowBounds(BoundsRect, WindowState = wsMaximized);
   FSettings.SetZoomStep(FZoomStep);
-  FSettings.SetLeftPanelVisible(FLeftPanel.Visible);
-  FSettings.SetRightPanelVisible(FRightPanel.Visible);
+  FSettings.SetLeftPanelVisible(FLeftWanted);
+  FSettings.SetRightPanelVisible(FRightWanted);
   FSettings.Save;
   FViewModel := nil;
 end;
@@ -718,7 +865,10 @@ begin
   FLibraryButton.Hint := L('header.library');
   FZoomOutButton.Hint := L('header.smaller');
   FZoomInButton.Hint := L('header.bigger');
-  FSilenceButton.Caption := L('header.silence');
+  if FSilence then
+    FSilenceButton.Caption := L('header.silence.exit')
+  else
+    FSilenceButton.Caption := L('header.silence');
   FSilenceButton.Hint := L('header.silence.hint');
   FSearchButton.Hint := L('header.search');
   FMoreButton.Hint := L('header.more');
@@ -796,6 +946,9 @@ end;
 
 procedure TMainForm.ShowView(View: TReaderView);
 begin
+  // A.5: the shelf and the table of contents leave «Тиша»; ‹ › keep it.
+  if View <> rvRead then
+    SetSilence(False);
   redReader.Visible := View = rvRead;
   pnlChapterNav.Visible := View = rvRead;
   FChapterList.Host.Visible := View <> rvRead;
@@ -1308,17 +1461,11 @@ end;
 
 { search (A.4, C.1) }
 
-procedure TMainForm.SetRightPanelVisible(Value: Boolean);
-begin
-  FRightPanel.Visible := Value;
-  FSettings.SetRightPanelVisible(Value);
-  pnlCenterResize(nil);
-end;
 
 procedure TMainForm.OpenSearch;
 begin
-  if not FRightPanel.Visible then
-    SetRightPanelVisible(True);
+  if not FRightPanel.Visible or FSilence then
+    SetRightWanted(True);
   if FSearchEdit.CanFocus then
   begin
     FSearchEdit.SetFocus;
@@ -1329,10 +1476,7 @@ end;
 procedure TMainForm.SearchButtonClick(Sender: TObject);
 begin
   if FRightPanel.Visible then
-  begin
-    SetRightPanelVisible(False);
-    FocusReaderOrList;
-  end
+    SetRightWanted(False)                // ApplyLayout moves the focus out
   else
     OpenSearch;
 end;
@@ -1607,6 +1751,12 @@ procedure TMainForm.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftSta
 begin
   if FViewModel = nil then
     Exit;
+  if (Key = vkEscape) and FSilence then  // A.6: Esc leaves «Тиша» first
+  begin
+    SetSilence(False);
+    Key := 0;
+    Exit;
+  end;
   if Key = vkF3 then
   begin
     if Shift = [ssShift] then
