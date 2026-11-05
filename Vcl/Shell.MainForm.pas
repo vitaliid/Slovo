@@ -2,13 +2,11 @@
 
 (* TMainForm - the VCL shell (Slovo_04 Part D) implementing IMainView.
 
-  This step: the CENTRE of the window - the text column (A.2, A.5, C.4):
-  breadcrumbs, the chapter as one RTF document in a TRichEdit (E-01), the
-  character-count check (C.4), zoom (E-11) and the ‹ › bar.
-
-  Still temporary: the shelf and the table of contents are a plain list box in
-  the same column (double click or Enter opens, Backspace goes up). It is
-  replaced by the VirtualTreeView panels in the next step; Bind/Unbind stay.
+  Built so far: the text column (A.2, A.5, C.4) - clickable breadcrumbs, the
+  chapter as one RTF document in a TRichEdit (E-01) with the character-count
+  check, zoom (E-11), the ‹ › bar, the shelf and the table of contents
+  (Shell.ChapterList, C.5); the library tree on the left (Shell.LibraryTree,
+  A.3). Next: the search panel (A.4), the header and the error banner (E-15).
 
   No interface literal in the .dfm (E-05): every caption comes from
   ApplyLocalization. *)
@@ -35,19 +33,10 @@ uses
   Presentation.Theme,
   Presentation.ChapterRtf,
   Presentation.Views,
-  Shell.LibraryTree;
+  Shell.LibraryTree,
+  Shell.ChapterList;
 
 type
-  // What the temporary list shows in each row and what a double click opens.
-  TShellItemKind = (likModule, likTranslation, likBibleBook, likChapter, likBibleChapter);
-
-  TShellListItem = record
-    Kind: TShellItemKind;
-    ModuleId: TModuleId;
-    BookCode: TBookCode;
-    Number: Integer;                     // ChapterOrder / ChapterNumber
-  end;
-
   // The last chapter shown - re-rendered when the language changes ("Розділ N").
   TShownChapter = (scNone, scBook, scBible);
 
@@ -76,17 +65,14 @@ type
     lblStatus: TLabel;
     pnlCenter: TPanel;
     pnlColumn: TPanel;
-    lblCrumbs: TLabel;
+    pnlCrumbs: TPanel;
     redReader: TRichEdit;
-    lstItems: TListBox;
     pnlChapterNav: TPanel;
     btnPrevChapter: TButton;
     btnNextChapter: TButton;
     procedure FormCreate(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure pnlCenterResize(Sender: TObject);
-    procedure lstItemsDblClick(Sender: TObject);
-    procedure lstItemsKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure actZoomInExecute(Sender: TObject);
     procedure actZoomOutExecute(Sender: TObject);
     procedure actZoomResetExecute(Sender: TObject);
@@ -107,7 +93,7 @@ type
     FOnSearchCompleted: TProc<TSearchReply>;
     FOnErrorOccurred: TProc<TResultError>;
 
-    FItems: TArray<TShellListItem>;
+    FNodes: TArray<TLibraryNode>;        // from OnLibraryChanged: shelf and toc rows come from it
     FZoomStep: Integer;
     FShown: TShownChapter;
     FLastChapter: TChapterLoadedArgs;
@@ -124,13 +110,23 @@ type
     procedure LibraryNodeActivated(const Node: TLibraryNode);
     procedure LibraryNodeChecked(const Node: TLibraryNode; Checked: Boolean);
 
+  private
+    // Shelf and table of contents (A.2, C.5) and the breadcrumbs.
+    FChapterList: TChapterList;
+    FLeftPad: Integer;
+    FCrumbActions: TArray<TProc>;
+    function FindNode(Kind: TLibraryNodeKind; const ModuleId: TModuleId; const BookCode: TBookCode = ''): Integer;
+    function IsUnder(Index, Ancestor: Integer): Boolean;
+    procedure AddCrumb(const Caption: string; const Action: TProc);
+    procedure CrumbClick(Sender: TObject);
+    procedure CrumbMouseEnter(Sender: TObject);
+    procedure CrumbMouseLeave(Sender: TObject);
+
     procedure ApplyLocalization;
     procedure UpdateStatus;
     procedure ShowView(View: TReaderView);
     procedure FillShelf;
     procedure FillToc;
-    procedure AddItem(const Caption: string; const Item: TShellListItem);
-    procedure OpenItem(Index: Integer);
     procedure GoUp;
     procedure RenderChapter(const Args: TChapterLoadedArgs);
     procedure RenderBibleChapter(const Args: TBibleChapterLoadedArgs);
@@ -202,21 +198,35 @@ begin
   pnlColumn.Color := ColorBackground;
   pnlChapterNav.Color := ColorBackground;
   redReader.Color := ColorBackground;
-  lstItems.Color := ColorBackground;
-  lblCrumbs.Font.Color := ColorMuted;
-  lblCrumbs.Margins.Top := ScaleValue(TextColumnTop);
-  lblCrumbs.Margins.Bottom := ScaleValue(CrumbsBottom);
+  pnlCrumbs.Color := ColorBackground;
+  pnlCrumbs.Margins.Top := ScaleValue(TextColumnTop);
+  pnlCrumbs.Margins.Bottom := ScaleValue(CrumbsBottom);
+  pnlCrumbs.Height := ScaleValue(18);
+  redReader.AlignWithMargins := True;
+  pnlChapterNav.AlignWithMargins := True;
 
   // E-11: Ctrl+wheel is ours, so msftedit's own zoom never drifts from the setting.
   FReaderWndProc := redReader.WindowProc;
   redReader.WindowProc := ReaderWndProc;
 
   CreateLeftPanel;
+
+  FChapterList := TChapterList.Create(Self, pnlColumn,
+    function(Value: Integer): Integer
+    begin
+      Result := ScaleValue(Value);
+    end);
+  FChapterList.OnOpen := procedure(NodeIndex: Integer)
+    begin
+      LibraryNodeActivated(FNodes[NodeIndex]);
+    end;
+  pnlCenterResize(nil);                  // the list exists now: give it the margin
 end;
 
 destructor TMainForm.Destroy;
 begin
-  FLibraryTree.Free;                     // the VST itself is owned by the form
+  FChapterList.Free;                     // the controls themselves are owned by the form
+  FLibraryTree.Free;
   inherited;
 end;
 
@@ -253,6 +263,7 @@ begin
 
   FOnLibraryChanged := procedure(Nodes: TArray<TLibraryNode>)
     begin
+      FNodes := Nodes;
       FLibraryTree.Build(Nodes);
       FCheckedCount := FLibraryTree.CheckedCount;
       UpdateStatus;
@@ -273,7 +284,7 @@ begin
   Application.OnException := HandleException;
   Font.Name := FTheme.UiFont;
   FLibraryTree.ApplyFont(FTheme.UiFont);
-  lstItems.Font.Name := FTheme.TextFont;
+  FChapterList.ApplyFonts(FTheme.TextFont, FTheme.UiFont);
   FZoomStep := EnsureRange(FSettings.GetZoomStep, MinZoomStep, MaxZoomStep);
   PrepareReader(redReader);
   SetZoomPx(redReader, ZoomPx(FZoomStep));
@@ -369,7 +380,14 @@ begin
     ScaleValue(TextColumnSideMin), ScaleValue(TextColumnSideMax));
   LeftPad := EnsureRange(ClientWidth * TextColumnLeftPercent div 100,
     ScaleValue(TextColumnLeftMin), ScaleValue(TextColumnLeftMax));
-  pnlColumn.Padding.Left := LeftPad;
+  // The left margin belongs to every child but the list, which draws chapter
+  // numbers inside it (mockup: number at left -64px).
+  FLeftPad := LeftPad;
+  pnlCrumbs.Margins.Left := LeftPad;
+  redReader.Margins.SetBounds(LeftPad, 0, 0, 0);
+  pnlChapterNav.Margins.SetBounds(LeftPad, 0, 0, 0);
+  if FChapterList <> nil then
+    FChapterList.SetLeftPad(LeftPad);
   pnlColumn.Width := Max(Min(ScaleValue(TextColumnMax) + LeftPad,
     pnlCenter.ClientWidth - 2 * Side), 0);
   pnlColumn.Left := (pnlCenter.ClientWidth - pnlColumn.Width) div 2;
@@ -381,7 +399,7 @@ procedure TMainForm.ShowView(View: TReaderView);
 begin
   redReader.Visible := View = rvRead;
   pnlChapterNav.Visible := View = rvRead;
-  lstItems.Visible := View <> rvRead;
+  FChapterList.Host.Visible := View <> rvRead;
   case View of
     rvShelf: FillShelf;
     rvToc:   FillToc;
@@ -391,163 +409,261 @@ begin
   // visibility, Showing does not.
   if (View = rvRead) and redReader.Showing then
     redReader.SetFocus
-  else if (View <> rvRead) and lstItems.Showing then
-    lstItems.SetFocus;
+  else if View <> rvRead then
+    FChapterList.FocusList;
 end;
 
+// A.2: КАТЕГОРІЯ / КНИГА / РОЗДІЛ 3 · НАЗВА - every part but the last opens its level.
 procedure TMainForm.UpdateCrumbs;
 var
   M: TModule;
-  Parts: TArray<string>;
   P: TReadingPosition;
+  Category: TBookCategory;
+  Translation: TModuleId;
+  Book: TBookRef;
+  ModuleId: TModuleId;
 begin
-  Parts := nil;
-  case FViewModel.View of
-    rvShelf:
-      if FViewModel.ShelfTranslation <> '' then
-        Parts := [L(BibleCategoryKey), FViewModel.ModuleTitle(FViewModel.ShelfTranslation)]
-      else
-        Parts := [L(CategoryKeys[FViewModel.ShelfCategory])];
-    rvToc:
-      if FViewModel.TocBook.BookCode <> '' then
-        Parts := [L(BibleCategoryKey) + ' · ' + FViewModel.ModuleTitle(FViewModel.TocBook.ModuleId),
-          FViewModel.BookTitle(FViewModel.TocBook)]
-      else if FViewModel.Catalog.FindModule(FViewModel.TocModule, M) then
-        Parts := [L(CategoryKeys[M.Category]), M.Title];
-    rvRead:
-      begin
-        P := FViewModel.Position;
-        if P.Kind = ckBibleTranslation then
-          Parts := [L(BibleCategoryKey) + ' · ' + FViewModel.ModuleTitle(P.BibleChapter.Book.ModuleId),
-            FViewModel.BookTitle(P.BibleChapter.Book),
-            FViewModel.BookTitle(P.BibleChapter.Book) + ' ' + IntToStr(P.BibleChapter.ChapterNumber)]
-        else if FViewModel.Catalog.FindModule(P.Chapter.ModuleId, M) then
-          Parts := [L(CategoryKeys[M.Category]), M.Title,
-            L('read.chapter', [P.Chapter.ChapterOrder]) + ' · ' + FViewModel.ChapterTitle(P.Chapter)];
-      end;
+  pnlCrumbs.DisableAlign;
+  try
+    while pnlCrumbs.ControlCount > 0 do
+      pnlCrumbs.Controls[0].Free;
+    FCrumbActions := nil;
+
+    case FViewModel.View of
+      rvShelf:
+        if FViewModel.ShelfTranslation <> '' then
+          AddCrumb(L(BibleCategoryKey) + ' · ' + FViewModel.ModuleTitle(FViewModel.ShelfTranslation), nil)
+        else
+          AddCrumb(L(CategoryKeys[FViewModel.ShelfCategory]), nil);
+      rvToc:
+        if FViewModel.TocBook.BookCode <> '' then
+        begin
+          Translation := FViewModel.TocBook.ModuleId;
+          AddCrumb(L(BibleCategoryKey) + ' · ' + FViewModel.ModuleTitle(Translation),
+            procedure begin FViewModel.ShowShelf(Translation); end);
+          AddCrumb(FViewModel.BookTitle(FViewModel.TocBook), nil);
+        end
+        else if FViewModel.Catalog.FindModule(FViewModel.TocModule, M) then
+        begin
+          Category := M.Category;
+          AddCrumb(L(CategoryKeys[Category]), procedure begin FViewModel.ShowShelf(Category); end);
+          AddCrumb(M.Title, nil);
+        end;
+      rvRead:
+        begin
+          P := FViewModel.Position;
+          if P.Kind = ckBibleTranslation then
+          begin
+            Book := P.BibleChapter.Book;
+            Translation := Book.ModuleId;
+            AddCrumb(L(BibleCategoryKey) + ' · ' + FViewModel.ModuleTitle(Translation),
+              procedure begin FViewModel.ShowShelf(Translation); end);
+            AddCrumb(FViewModel.BookTitle(Book), procedure begin FViewModel.ShowToc(Book); end);
+            AddCrumb(FViewModel.BookTitle(Book) + ' ' + IntToStr(P.BibleChapter.ChapterNumber), nil);
+          end
+          else if FViewModel.Catalog.FindModule(P.Chapter.ModuleId, M) then
+          begin
+            Category := M.Category;
+            ModuleId := M.Id;
+            AddCrumb(L(CategoryKeys[Category]), procedure begin FViewModel.ShowShelf(Category); end);
+            AddCrumb(M.Title, procedure begin FViewModel.ShowToc(ModuleId); end);
+            AddCrumb(L('read.chapter', [P.Chapter.ChapterOrder]) + ' · ' +
+              FViewModel.ChapterTitle(P.Chapter), nil);
+          end;
+        end;
+    end;
+  finally
+    pnlCrumbs.EnableAlign;
   end;
-  lblCrumbs.Caption := string.Join('  /  ', Parts).ToUpper;
 end;
 
-{ temporary shelf and table of contents - replaced by VST (C.5) }
+// Action = nil: the current level, not a link. Mockup: 11 px, uppercase,
+// links #767676 -> accent on hover, the current part #2f2f2f, "/" #c8c8c8.
+procedure TMainForm.AddCrumb(const Caption: string; const Action: TProc);
 
-procedure TMainForm.AddItem(const Caption: string; const Item: TShellListItem);
+  function NewLabel(const Text: string; Color: TColor): TLabel;
+  begin
+    Result := TLabel.Create(Self);
+    Result.Left := 100000 + pnlCrumbs.ControlCount;     // alLeft keeps creation order
+    Result.Parent := pnlCrumbs;
+    Result.Align := alLeft;
+    Result.AlignWithMargins := True;
+    Result.Margins.SetBounds(0, 0, ScaleValue(10), 0);
+    Result.ShowAccelChar := False;
+    Result.Caption := Text;
+    Result.Font.Name := FTheme.UiFont;
+    Result.Font.Height := -ScaleValue(11);
+    Result.Font.Color := Color;
+  end;
+
+var
+  Lbl: TLabel;
 begin
-  lstItems.Items.Add(Caption);
-  FItems := FItems + [Item];
+  if Length(FCrumbActions) > 0 then
+    NewLabel('/', TColor($00C8C8C8));
+  if Assigned(Action) then
+    Lbl := NewLabel(Caption.ToUpper, ColorMuted)
+  else
+    Lbl := NewLabel(Caption.ToUpper, ColorText);
+  Lbl.Tag := Length(FCrumbActions);
+  FCrumbActions := FCrumbActions + [Action];
+  if Assigned(Action) then
+  begin
+    Lbl.Cursor := crHandPoint;
+    Lbl.OnClick := CrumbClick;
+    Lbl.OnMouseEnter := CrumbMouseEnter;
+    Lbl.OnMouseLeave := CrumbMouseLeave;
+  end;
+end;
+
+procedure TMainForm.CrumbClick(Sender: TObject);
+var
+  Action: TProc;
+  Queued: TThreadProcedure;
+begin
+  // The action rebuilds the crumbs, which frees Sender - never inside its own
+  // OnClick: run it after the click has finished.
+  Action := FCrumbActions[(Sender as TLabel).Tag];
+  Queued := procedure begin Action(); end;
+  TThread.ForceQueue(nil, Queued);
+end;
+
+procedure TMainForm.CrumbMouseEnter(Sender: TObject);
+begin
+  (Sender as TLabel).Font.Color := ColorAccent;
+end;
+
+procedure TMainForm.CrumbMouseLeave(Sender: TObject);
+begin
+  (Sender as TLabel).Font.Color := ColorMuted;
+end;
+
+{ shelf and table of contents (A.2, C.5) - rows from the library nodes }
+
+function TMainForm.FindNode(Kind: TLibraryNodeKind; const ModuleId: TModuleId;
+  const BookCode: TBookCode): Integer;
+var
+  I: Integer;
+begin
+  for I := 0 to High(FNodes) do
+    if (FNodes[I].Kind = Kind) and (FNodes[I].ModuleId = ModuleId) and (FNodes[I].BookCode = BookCode) then
+      Exit(I);
+  Result := -1;
+end;
+
+function TMainForm.IsUnder(Index, Ancestor: Integer): Boolean;
+begin
+  Index := FNodes[Index].Parent;
+  while Index >= 0 do
+  begin
+    if Index = Ancestor then
+      Exit(True);
+    Index := FNodes[Index].Parent;
+  end;
+  Result := False;
 end;
 
 procedure TMainForm.FillShelf;
 var
-  M: TModule;
-  B: TBookInfo;
-  Item: TShellListItem;
+  Rows: TArray<TListRow>;
+  Row: TListRow;
+  P: TReadingPosition;
+  HasPosition: Boolean;
+  Root, I: Integer;
+  Title, Subtitle: string;
 begin
-  lstItems.Items.BeginUpdate;
-  try
-    lstItems.Items.Clear;
-    FItems := nil;
-    Item := Default(TShellListItem);
-    if FViewModel.ShelfTranslation <> '' then
-      for B in FViewModel.Catalog.Books(FViewModel.ShelfTranslation) do
+  Rows := nil;
+  if FViewModel.ShelfTranslation <> '' then
+  begin
+    // A translation's shelf: its books; "читаю" on the book of the saved position.
+    Root := FindNode(lnBibleTranslation, FViewModel.ShelfTranslation);
+    HasPosition := FSettings.GetPosition(FViewModel.ShelfTranslation, P) and
+      (P.Kind = ckBibleTranslation);
+    for I := 0 to High(FNodes) do
+      if (Root >= 0) and (FNodes[I].Parent = Root) and (FNodes[I].Kind = lnBibleBook) then
       begin
-        Item.Kind := likBibleBook;
-        Item.ModuleId := B.Ref.ModuleId;
-        Item.BookCode := B.Ref.BookCode;
-        AddItem(B.DisplayTitle + '  ·  ' + L('library.bibleChapters', [B.ChapterCount]), Item);
-      end
-    else
-      // Temporary: every module, so that the Bible is reachable without the tree.
-      for M in FViewModel.Catalog.Modules do
-      begin
-        Item.ModuleId := M.Id;
-        if M.Kind = ckBibleTranslation then
-        begin
-          Item.Kind := likTranslation;
-          AddItem(L(BibleCategoryKey) + ' · ' + M.Title + '  ·  ' + L('library.bibleBooks', [M.ChildCount]), Item);
-        end
-        else
-        begin
-          Item.Kind := likModule;
-          AddItem(M.Title + '  ·  ' + L('library.chapters', [M.ChildCount]), Item);
-        end;
+        Row := Default(TListRow);
+        Row.NodeIndex := I;
+        Row.Title := FNodes[I].Caption;
+        Row.Meta := L('library.bibleChapters', [FNodes[I].Count]);
+        if HasPosition and (P.BibleChapter.Book.BookCode = FNodes[I].BookCode) then
+          Row.Status := L('shelf.reading', [P.BibleChapter.ChapterNumber]);
+        Rows := Rows + [Row];
       end;
-  finally
-    lstItems.Items.EndUpdate;
+    Title := L(BibleCategoryKey) + ' · ' + FViewModel.ModuleTitle(FViewModel.ShelfTranslation);
+    Subtitle := L('library.bibleBooks', [Length(Rows)]);
+  end
+  else
+  begin
+    // A category: every book under it in tree order (B-25), series included.
+    Root := -1;
+    for I := 0 to High(FNodes) do
+      if (FNodes[I].Kind = lnCategory) and (FNodes[I].CaptionKey = CategoryKeys[FViewModel.ShelfCategory]) then
+        Root := I;
+    for I := 0 to High(FNodes) do
+      if (Root >= 0) and (FNodes[I].Kind = lnModule) and IsUnder(I, Root) then
+      begin
+        Row := Default(TListRow);
+        Row.NodeIndex := I;
+        Row.Title := FNodes[I].Caption;
+        Row.Meta := L('library.chapters', [FNodes[I].Count]);
+        if FSettings.GetPosition(FNodes[I].ModuleId, P) and (P.Kind = ckBook) then
+          Row.Status := L('shelf.reading', [P.Chapter.ChapterOrder]);
+        Rows := Rows + [Row];
+      end;
+    Title := L(CategoryKeys[FViewModel.ShelfCategory]);
+    Subtitle := L('shelf.booksCount', [Length(Rows)]);
   end;
-  if lstItems.Count > 0 then
-    lstItems.ItemIndex := 0;
+  FChapterList.Show(Title, Subtitle, Rows);
 end;
 
 procedure TMainForm.FillToc;
 var
-  C: TChapterInfo;
-  B: TBookInfo;
-  Item: TShellListItem;
-  I: Integer;
-begin
-  lstItems.Items.BeginUpdate;
-  try
-    lstItems.Items.Clear;
-    FItems := nil;
-    Item := Default(TShellListItem);
-    if FViewModel.TocBook.BookCode <> '' then
-    begin
-      for B in FViewModel.Catalog.Books(FViewModel.TocBook.ModuleId) do
-        if B.Ref.BookCode = FViewModel.TocBook.BookCode then
-          for I := 1 to B.ChapterCount do
-          begin
-            Item.Kind := likBibleChapter;
-            Item.ModuleId := B.Ref.ModuleId;
-            Item.BookCode := B.Ref.BookCode;
-            Item.Number := I;
-            AddItem(B.DisplayTitle + ' ' + IntToStr(I), Item);
-          end;
-    end
-    else
-      for C in FViewModel.Catalog.Chapters(FViewModel.TocModule) do
-      begin
-        Item.Kind := likChapter;
-        Item.ModuleId := C.Ref.ModuleId;
-        Item.Number := C.Ref.ChapterOrder;
-        AddItem(Format('%3d   %s', [C.Ref.ChapterOrder, C.Title]), Item);
-      end;
-  finally
-    lstItems.Items.EndUpdate;
-  end;
-  if lstItems.Count > 0 then
-    lstItems.ItemIndex := 0;
-end;
-
-procedure TMainForm.OpenItem(Index: Integer);
-var
-  Item: TShellListItem;
+  Rows: TArray<TListRow>;
+  Row: TListRow;
+  P: TReadingPosition;
+  HasPosition: Boolean;
+  Root, I: Integer;
   Book: TBookRef;
-  Chapter: TChapterRef;
-  BibleChapter: TBibleChapterRef;
+  Title: string;
 begin
-  if (Index < 0) or (Index > High(FItems)) then
-    Exit;
-  Item := FItems[Index];
-  Book.ModuleId := Item.ModuleId;
-  Book.BookCode := Item.BookCode;
-  case Item.Kind of
-    likModule:      FViewModel.ShowToc(Item.ModuleId);
-    likTranslation: FViewModel.ShowShelf(Item.ModuleId);
-    likBibleBook:   FViewModel.ShowToc(Book);
-    likChapter:
-      begin
-        Chapter.ModuleId := Item.ModuleId;
-        Chapter.ChapterOrder := Item.Number;
-        FViewModel.OpenChapter(Chapter);
-      end;
-    likBibleChapter:
-      begin
-        BibleChapter.Book := Book;
-        BibleChapter.ChapterNumber := Item.Number;
-        FViewModel.OpenChapter(BibleChapter);
-      end;
+  Rows := nil;
+  Book := FViewModel.TocBook;
+  if Book.BookCode <> '' then
+  begin
+    Root := FindNode(lnBibleBook, Book.ModuleId, Book.BookCode);
+    HasPosition := FSettings.GetPosition(Book.ModuleId, P) and (P.Kind = ckBibleTranslation) and
+      (P.BibleChapter.Book.BookCode = Book.BookCode);
+    Title := FViewModel.BookTitle(Book);
+  end
+  else
+  begin
+    Root := FindNode(lnModule, FViewModel.TocModule);
+    HasPosition := FSettings.GetPosition(FViewModel.TocModule, P) and (P.Kind = ckBook);
+    Title := FViewModel.ModuleTitle(FViewModel.TocModule);
   end;
+
+  for I := 0 to High(FNodes) do
+    if (Root >= 0) and (FNodes[I].Parent = Root) and (FNodes[I].Kind = lnChapter) then
+    begin
+      Row := Default(TListRow);
+      Row.NodeIndex := I;
+      Row.Number := FNodes[I].ChapterOrder;
+      if Book.BookCode <> '' then
+      begin
+        Row.Title := Title + ' ' + IntToStr(FNodes[I].ChapterOrder);
+        if HasPosition and (P.BibleChapter.ChapterNumber = FNodes[I].ChapterOrder) then
+          Row.Status := L('toc.reading').ToUpper;
+      end
+      else
+      begin
+        Row.Title := FNodes[I].Caption;
+        if HasPosition and (P.Chapter.ChapterOrder = FNodes[I].ChapterOrder) then
+          Row.Status := L('toc.reading').ToUpper;
+      end;
+      Rows := Rows + [Row];
+    end;
+  FChapterList.Show(Title, L('toc.title'), Rows);
 end;
 
 // Backspace: what the breadcrumbs will do (A.2) - Read -> Toc -> Shelf.
@@ -572,20 +688,6 @@ begin
     rvShelf:
       if FViewModel.ShelfTranslation <> '' then
         FViewModel.ShowShelf(FViewModel.ShelfCategory);
-  end;
-end;
-
-procedure TMainForm.lstItemsDblClick(Sender: TObject);
-begin
-  OpenItem(lstItems.ItemIndex);
-end;
-
-procedure TMainForm.lstItemsKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
-begin
-  if Key = vkReturn then
-  begin
-    OpenItem(lstItems.ItemIndex);
-    Key := 0;
   end;
 end;
 

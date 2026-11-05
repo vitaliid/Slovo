@@ -26,6 +26,7 @@ uses
   Presentation.Views in 'Presentation\Presentation.Views.pas',
   Shell.RichEdit in 'Vcl\Shell.RichEdit.pas',
   Shell.LibraryTree in 'Vcl\Shell.LibraryTree.pas',
+  Shell.ChapterList in 'Vcl\Shell.ChapterList.pas',
   Shell.MainForm in 'Vcl\Shell.MainForm.pas' {MainForm},
   App.CompositionRoot in 'App.CompositionRoot.pas';
 

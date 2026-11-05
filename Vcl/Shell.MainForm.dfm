@@ -55,18 +55,20 @@ object MainForm: TMainForm
       BevelOuter = bvNone
       ParentBackground = False
       TabOrder = 0
-      object lblCrumbs: TLabel
+      object pnlCrumbs: TPanel
         AlignWithMargins = True
         Left = 0
-        Top = 16
+        Top = 44
         Width = 724
-        Height = 15
+        Height = 18
         Margins.Left = 0
-        Margins.Top = 16
+        Margins.Top = 44
         Margins.Right = 0
-        Margins.Bottom = 16
+        Margins.Bottom = 44
         Align = alTop
-        EllipsisPosition = epEndEllipsis
+        BevelOuter = bvNone
+        ParentBackground = False
+        TabOrder = 3
       end
       object redReader: TRichEdit
         Left = 0
@@ -80,25 +82,6 @@ object MainForm: TMainForm
         ScrollBars = ssVertical
         TabOrder = 0
         WantReturns = False
-      end
-      object lstItems: TListBox
-        Left = 0
-        Top = 47
-        Width = 724
-        Height = 641
-        Align = alClient
-        BorderStyle = bsNone
-        Font.Charset = DEFAULT_CHARSET
-        Font.Color = 3092271
-        Font.Height = -19
-        Font.Name = 'Georgia'
-        Font.Style = []
-        ItemHeight = 28
-        ParentFont = False
-        TabOrder = 1
-        Visible = False
-        OnDblClick = lstItemsDblClick
-        OnKeyDown = lstItemsKeyDown
       end
       object pnlChapterNav: TPanel
         Left = 0
