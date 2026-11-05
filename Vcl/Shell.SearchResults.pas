@@ -73,7 +73,8 @@ implementation
 uses
   System.UITypes,
   System.Math,
-  Presentation.Theme;
+  Presentation.Theme,
+  Shell.FlatControls;
 
 type
   // Section -> Group -> Row; Group = -1 / Row = -1 for the upper levels.
@@ -87,6 +88,10 @@ type
 
 const
   RowHeight     = 88;     // 11 + ref 15 + 5 + 2 x 23 + 11 (mockup: padding 11px 13px)
+  RowGap        = 2;      // the list's gap
+  RowRadius     = 8;
+  AccentWidth   = 2;      // border-left 2px, transparent until hover
+  BottomPadding = 60;     // aside padding-bottom
   HeaderHeight  = 30;
   RowPadX       = 13;
   RowPadY       = 11;
@@ -174,6 +179,8 @@ begin
   FTree.BeginUpdate;
   try
     FTree.Clear;
+    // Not in the constructor: VST looks for its bottom node (see Shell.LibraryTree).
+    FTree.BottomSpace := Px(BottomPadding);
     FTree.RootNodeCount := Length(Sections);
     FTree.FullExpand;
   finally
@@ -217,7 +224,7 @@ begin
     else
       Data.Group := 0;
     Data.Row := Node.Index;
-    Sender.NodeHeight[Node] := Px(RowHeight);
+    Sender.NodeHeight[Node] := Px(RowHeight + RowGap);
   end;
 end;
 
@@ -270,10 +277,7 @@ begin
   Hot := (Node = Sender.HotNode) or ((Node = Sender.FocusedNode) and Sender.Focused);
 
   TargetCanvas.Brush.Style := bsSolid;
-  if Hot and (Data.Kind = nkRow) then
-    TargetCanvas.Brush.Color := ColorRowHover
-  else
-    TargetCanvas.Brush.Color := ColorBackground;
+  TargetCanvas.Brush.Color := ColorBackground;
   TargetCanvas.FillRect(R);
 
   case Data.Kind of
@@ -307,14 +311,20 @@ begin
       end;
     nkRow:
       begin
+        // Mockup: radius 8, hover rgba(0,0,0,.04) and border-left 2px of the
+        // accent, which follows the rounding - the accent box with the hover
+        // box over it 2 px in.
+        TextR := Rect(R.Left, R.Top, R.Right, R.Top + Px(RowHeight));
         if Hot then
         begin
-          // Mockup: a 2 px accent bar on the left of the hovered row.
-          TargetCanvas.Brush.Color := ColorAccent;
-          TargetCanvas.FillRect(Rect(R.Left, R.Top + Px(2), R.Left + Px(2), R.Bottom - Px(2)));
+          PaintRoundRect(TargetCanvas, TextR, Px(RowRadius), ColorAccent, clNone);
+          PaintRoundRect(TargetCanvas, Rect(TextR.Left + Px(AccentWidth), TextR.Top, TextR.Right, TextR.Bottom),
+            Px(RowRadius) - Px(AccentWidth) div 2, ColorRowHover, clNone);
         end;
         TargetCanvas.Brush.Style := bsClear;
-        PaintRow(TargetCanvas, FSections[Data.Section].Groups[Data.Group].Rows[Data.Row], R);
+        // The transparent border keeps the text 2 px in also without hover.
+        PaintRow(TargetCanvas, FSections[Data.Section].Groups[Data.Group].Rows[Data.Row],
+          Rect(TextR.Left + Px(AccentWidth), TextR.Top, TextR.Right, TextR.Bottom));
       end;
   end;
 end;

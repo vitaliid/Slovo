@@ -68,6 +68,7 @@ type
     MatchStarts: TArray<Integer>;   // per match (word), document order: its position in RichEdit
     HitFirstMatch: TArray<Integer>; // per Hits[i]: index in MatchStarts of its first match; -1 - none
     Where: string;               // 'PP:3' / 'ohienko-uk:GEN:3' - for the log line
+    TitleLen: Integer;           // the title's characters from 0: the form sizes them (A.2)
   end;
 
   TChapterRtfBuilder = class
@@ -490,6 +491,7 @@ begin
     end
     else
       W.Text(Title);
+    Result.TitleLen := W.Chars;
     WriteLabelAndRule(W, ChapterLabel, Theme);
 
     for I := First to High(Chapter.Paragraphs) do
@@ -579,6 +581,7 @@ begin
     WriteHeader(W, Theme);
     W.BeginParagraph(RtfChapterTitle, 0, SpaceTitleAfter);
     W.Text(BookTitle);
+    Result.TitleLen := W.Chars;
     WriteLabelAndRule(W, ChapterLabel, Theme);
 
     for V in Chapter.Verses do

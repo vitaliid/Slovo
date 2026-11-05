@@ -199,6 +199,8 @@ type
     FLibraryHost: TPanel;
     FResultsHost: TPanel;
     FReaderHost: TPanel;
+    FTitlePx: Integer;                   // the chapter title's size now, CSS px
+    procedure UpdateTitleSize(Force: Boolean);
     procedure LibraryHostResize(Sender: TObject);
     procedure ResultsHostResize(Sender: TObject);
     procedure ReaderHostResize(Sender: TObject);
@@ -595,6 +597,47 @@ begin
     SetLeftWanted(True);
 end;
 
+// Mockup h1: font-size clamp(30px, 4.6vw, 46px), vw - the window. The RTF is
+// built at 46 px; here the title's characters get the size (EM_SETCHARFORMAT
+// on 0..TitleLen, no rebuild, the scroll kept); the shelf / toc title too.
+procedure TMainForm.UpdateTitleSize(Force: Boolean);
+var
+  Px: Integer;
+  CF: TCharFormat2;
+  Sel, Title: TCharRange;
+  SI: TScrollInfo;
+begin
+  Px := EnsureRange(Round(ClientWidth * 96 / CurrentPPI * 0.046), 30, 46);
+  if (Px = FTitlePx) and not Force then
+    Exit;
+  FTitlePx := Px;
+  if FChapterList <> nil then
+    FChapterList.SetTitlePx(Px);
+  if (FShown = scNone) or (FDoc.TitleLen <= 0) or not redReader.HandleAllocated then
+    Exit;
+  SI.cbSize := SizeOf(SI);
+  SI.fMask := SIF_POS;
+  GetScrollInfo(redReader.Handle, SB_VERT, SI);
+  SendMessage(redReader.Handle, WM_SETREDRAW, 0, 0);
+  try
+    SendMessage(redReader.Handle, EM_EXGETSEL, 0, LPARAM(@Sel));
+    Title.cpMin := 0;
+    Title.cpMax := FDoc.TitleLen;
+    SendMessage(redReader.Handle, EM_EXSETSEL, 0, LPARAM(@Title));
+    FillChar(CF, SizeOf(CF), 0);
+    CF.cbSize := SizeOf(CF);
+    CF.dwMask := CFM_SIZE;
+    CF.yHeight := Px * 15;               // twips: px * 0.75 pt * 20
+    SendMessage(redReader.Handle, EM_SETCHARFORMAT, SCF_SELECTION, LPARAM(@CF));
+    SendMessage(redReader.Handle, EM_EXSETSEL, 0, LPARAM(@Sel));
+    SendMessage(redReader.Handle, WM_VSCROLL, MakeWParam(SB_THUMBPOSITION, Word(SI.nPos)), 0);
+  finally
+    SendMessage(redReader.Handle, WM_SETREDRAW, 1, 0);
+    redReader.Invalidate;
+  end;
+  HideReaderCaret;
+end;
+
 procedure TMainForm.LibraryHostResize(Sender: TObject);
 begin
   FitHidingScrollBar(FLibraryTree.Control, FLibraryHost.ClientRect);
@@ -916,16 +959,18 @@ begin
   FWordForms.ShowHint := True;
   Place(FWordForms, 22, 11, 22, 0);
 
-  Place(NewLine(TColor($00E6E6E6)), 22, 24, 22, 0);
+  Place(NewLine(TColor($00E6E6E6)), 22, 32, 22, 0);   // options margin-bottom 4 + 28
   FSearchStatus := NewCaption(11, 0.1);
-  Place(FSearchStatus, 22, 14, 22, 8);
+  Place(FSearchStatus, 22, 16, 22, 8);
 
   FResultsHost := TPanel.Create(Self);
   FResultsHost.Parent := Content;
   FResultsHost.Top := Order * 1000 + 1000;           // after the alTop rows
   FResultsHost.Align := alClient;
   FResultsHost.AlignWithMargins := True;
-  FResultsHost.Margins.SetBounds(ScaleValue(9), 0, ScaleValue(9), ScaleValue(8));
+  // Mockup aside padding 22 (the rows' own padding 13 inside); 60 at the bottom
+  // is the list's BottomSpace.
+  FResultsHost.Margins.SetBounds(ScaleValue(22), 0, ScaleValue(22), 0);
   FResultsHost.BevelOuter := bvNone;
   FResultsHost.ParentBackground := False;
   FResultsHost.Color := ColorBackground;
@@ -1158,6 +1203,7 @@ begin
   pnlColumn.Height := pnlCenter.ClientHeight;
   if FReaderHost <> nil then
     ReaderHostResize(nil);
+  UpdateTitleSize(False);
   // Mockup: the scrollbar of <main> - at the right edge of the centre.
   if FCenterBar <> nil then
     FCenterBar.SetBounds(pnlCenter.ClientWidth - FCenterBar.Width, 0, FCenterBar.Width,
@@ -1529,6 +1575,7 @@ begin
   FFocusMatch := FocusMatch;
   FMatchCount := Length(Doc.MatchStarts);
   LoadDocument(Doc, FocusMatch);
+  UpdateTitleSize(True);
   UpdateHitNav;
 end;
 

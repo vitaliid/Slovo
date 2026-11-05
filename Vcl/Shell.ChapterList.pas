@@ -52,6 +52,7 @@ type
     FTree: TVirtualStringTree;
     FRows: TArray<TListRow>;
     FLeftPad: Integer;
+    FTitlePx: Integer;
     FTextFont: string;
     FUiFont: string;
     FOnOpen: TListOpenEvent;
@@ -76,6 +77,8 @@ type
     // The left margin of the column (TextColumnLeft*): numbers live inside it.
     procedure SetLeftPad(Value: Integer);
     procedure ApplyFonts(const TextFont, UiFont: string);
+    // Mockup h1: clamp(30px, 4.6vw, 46px) - the form passes the size in CSS px.
+    procedure SetTitlePx(Value: Integer);
     procedure FocusList;
 
     property Host: TPanel read FHost;
@@ -195,6 +198,7 @@ begin
   FTree.Cursor := crHandPoint;
 
   FLeftPad := 64;
+  FTitlePx := HeaderTitlePx;
   FTextFont := TextFontName;
   FUiFont := UiFontName;
 end;
@@ -219,7 +223,7 @@ begin
   FTextFont := TextFont;
   FUiFont := UiFont;
   FTitle.Font.Name := TextFont;
-  FTitle.Font.Height := -Px(HeaderTitlePx);
+  FTitle.Font.Height := -Px(FTitlePx);
   FSubtitle.Font.Name := TextFont;
   FSubtitle.Font.Height := -Px(HeaderSubPx);
   FSubtitle.Font.Style := [fsItalic];
@@ -231,6 +235,14 @@ end;
 procedure TChapterList.TreeHostResize(Sender: TObject);
 begin
   FitHidingScrollBar(FTree, FTreeHost.ClientRect);
+end;
+
+procedure TChapterList.SetTitlePx(Value: Integer);
+begin
+  if Value = FTitlePx then
+    Exit;
+  FTitlePx := Value;
+  FTitle.Font.Height := -Px(Value);
 end;
 
 procedure TChapterList.SetLeftPad(Value: Integer);

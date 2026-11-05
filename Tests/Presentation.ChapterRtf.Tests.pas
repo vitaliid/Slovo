@@ -560,6 +560,7 @@ begin
     Assert.AreEqual(Chapter.Verses[I].Text, TextAt(Back, R.StartChar, R.Len));
   end;
   Assert.AreEqual(4, Doc.Paragraphs[2].MarkerLen, 'tab "10" tab');
+  Assert.AreEqual(Length('Буття'), Doc.TitleLen, 'the title is sized by the form');
   Assert.Contains(Doc.Rtf, RtfVerse);
 end;
 
