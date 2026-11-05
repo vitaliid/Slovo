@@ -39,6 +39,18 @@ const
   LeftPanelWidth   = 272;
   RightPanelWidth  = 320;
   TextColumnMax    = 724;
+  // The text column of the mockup "Читання v2" (A.5): <main> has side padding
+  // clamp(16px, 4vw, 56px); inside it the column is max-width 724px, centred,
+  // with left padding clamp(48px, 6vw, 64px) - the margin for page markers -
+  // and 44px above the breadcrumbs, 44px between them and the title.
+  TextColumnSideMin     = 16;
+  TextColumnSideMax     = 56;
+  TextColumnSidePercent = 4;   // of the window width
+  TextColumnLeftMin     = 48;
+  TextColumnLeftMax     = 64;
+  TextColumnLeftPercent = 6;
+  TextColumnTop         = 44;
+  CrumbsBottom          = 44;
   BannerHeight     = 36;
   NarrowWidth      = 1180;     // below: one side panel at a time (A.5)
   VeryNarrowWidth  = 780;      // below: the left panel hides

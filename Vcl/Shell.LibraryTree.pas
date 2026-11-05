@@ -282,6 +282,10 @@ begin
     else
       CellText := N.Caption;
     end;
+    // The chapter being read carries the dot IN FRONT: static text after a long
+    // title ends up at the panel border, where it is clipped (seen on Windows).
+    if Index = FActive then
+      CellText := ActiveMark + ' ' + CellText;
     Exit;
   end;
 
@@ -294,7 +298,7 @@ begin
   else
     Counter := '';
   end;
-  if (Index = FActive) or (not Sender.Expanded[Node] and IsAncestorOfActive(Index)) then
+  if not Sender.Expanded[Node] and IsAncestorOfActive(Index) then
     if Counter = '' then
       Counter := ActiveMark
     else

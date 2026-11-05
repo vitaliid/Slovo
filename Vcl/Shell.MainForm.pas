@@ -204,6 +204,8 @@ begin
   redReader.Color := ColorBackground;
   lstItems.Color := ColorBackground;
   lblCrumbs.Font.Color := ColorMuted;
+  lblCrumbs.Margins.Top := ScaleValue(TextColumnTop);
+  lblCrumbs.Margins.Bottom := ScaleValue(CrumbsBottom);
 
   // E-11: Ctrl+wheel is ours, so msftedit's own zoom never drifts from the setting.
   FReaderWndProc := redReader.WindowProc;
@@ -357,9 +359,19 @@ end;
 { the text column (A.2) }
 
 procedure TMainForm.pnlCenterResize(Sender: TObject);
+var
+  Side, LeftPad: Integer;
 begin
-  // A.5: Width = Min(724, available), centred; the scroll bar sits by the column.
-  pnlColumn.Width := Min(ScaleValue(TextColumnMax), pnlCenter.ClientWidth);
+  // A.5 with the mockup's CSS (Presentation.Theme): side padding of the centre,
+  // then a column of at most 724 px of text plus its left margin, centred.
+  // "vw" is the window width.
+  Side := EnsureRange(ClientWidth * TextColumnSidePercent div 100,
+    ScaleValue(TextColumnSideMin), ScaleValue(TextColumnSideMax));
+  LeftPad := EnsureRange(ClientWidth * TextColumnLeftPercent div 100,
+    ScaleValue(TextColumnLeftMin), ScaleValue(TextColumnLeftMax));
+  pnlColumn.Padding.Left := LeftPad;
+  pnlColumn.Width := Max(Min(ScaleValue(TextColumnMax) + LeftPad,
+    pnlCenter.ClientWidth - 2 * Side), 0);
   pnlColumn.Left := (pnlCenter.ClientWidth - pnlColumn.Width) div 2;
   pnlColumn.Top := 0;
   pnlColumn.Height := pnlCenter.ClientHeight;

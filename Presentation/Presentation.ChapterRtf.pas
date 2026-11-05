@@ -88,7 +88,7 @@ const
   // "Розділ N" on the left. ONE glyph: consecutive dashes leave gaps (side
   // bearings). EB Garamond has the three-em dash U+2E3B; Georgia does not, so
   // the fallback font gets em dashes, which Georgia draws joined.
-  RtfRule            = '\sa600\f0\fs22\cf3';
+  RtfRule            = '\sa600\f0\fs34\cf3';     // U+2E3B at 17 pt ~ 56 px: the mockup's 58 px line
   RuleTextGaramond   = #$2E3B;
   RuleTextFallback   = #$2014#$2014;
 
