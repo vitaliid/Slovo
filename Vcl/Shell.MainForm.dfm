@@ -71,34 +71,6 @@ object MainForm: TMainForm
         BevelOuter = bvNone
         ParentBackground = False
         TabOrder = 2
-        object btnPrevChapter: TButton
-          AlignWithMargins = True
-          Left = 0
-          Top = 8
-          Width = 200
-          Height = 28
-          Margins.Left = 0
-          Margins.Top = 8
-          Margins.Bottom = 8
-          Action = actPrevChapter
-          Align = alLeft
-          TabOrder = 0
-          TabStop = False
-        end
-        object btnNextChapter: TButton
-          AlignWithMargins = True
-          Left = 524
-          Top = 8
-          Width = 200
-          Height = 28
-          Margins.Top = 8
-          Margins.Right = 0
-          Margins.Bottom = 8
-          Action = actNextChapter
-          Align = alRight
-          TabOrder = 1
-          TabStop = False
-        end
       end
     end
   end

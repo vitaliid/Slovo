@@ -204,7 +204,7 @@ graph LR
 | E-01 | **Рендер глави — `TRichEdit` (RichEdit 4.1) з RTF від `TChapterRtfBuilder`; уся глава — один документ з заголовком**; підсвітка запікається; неповний рендер → лог. **R6:** маркер сторінки на початку рядка, маркера посеред абзацу немає, штатний інтервал | V4 · R5 · R6 |
 | E-02 | **VirtualTreeView** для дерева, полиці/змісту й видачі — єдина стороння залежність, лише в Shell | V4 |
 | E-03 | Три панелі в одному вікні; «Тиша» і видимість панелей — стан форми, не ViewModel | V4 |
-| E-04 | Шрифт тексту EB Garamond у поставці (3 файли, `FR_PRIVATE`), fallback Georgia; UI — Segoe UI (R6) | V4 · R6 |
+| E-04 | Шрифти в поставці (`FR_PRIVATE`): текст EB Garamond (3 файли, fallback Georgia); UI — IBM Plex Sans Regular/Medium/SemiBold (fallback Segoe UI; переглянуто 2026-11-06, було Segoe UI у R6) | V4 · R6 · 2026-11-06 |
 | E-05 | Локалізація форми в коді (`ApplyLocalization`), у `.dfm` — жодного літерала; рядки з даними — ключі-шаблони `L(key, [args])` (R6) | V4 · R6 |
 | E-06 | Порт `ISettings`; `Infra.Settings.IniSettings` над `data\settings.ini`; `Save` — при виході й при зміні глави (R6) | V4 · R6 |
 | E-07 | Позиція читання — на кожну книгу (`[Positions]`, двокрапка = Біблія), плюс `[Reading] Last` | V4 · R6 |

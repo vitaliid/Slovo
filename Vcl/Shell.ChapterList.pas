@@ -43,6 +43,7 @@ type
   TChapterList = class
   private
     FHost: TPanel;
+    FTreeHost: TPanel;
     FHeader: TPanel;
     FTitle: TLabel;
     FSubtitle: TLabel;
@@ -64,6 +65,7 @@ type
       Node: PVirtualNode; Column: TColumnIndex; CellRect: TRect);
     procedure TreeNodeClick(Sender: TBaseVirtualTree; const HitInfo: THitInfo);
     procedure TreeKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure TreeHostResize(Sender: TObject);
     function Px(Value: Integer): Integer;
   public
     // Scale: 96-DPI pixels to the form's (E-14) - the form's own ScaleValue.
@@ -84,6 +86,7 @@ type
 implementation
 
 uses
+  Shell.FlatControls,
   System.UITypes,
   System.Math,
   Presentation.Theme;
@@ -157,9 +160,19 @@ begin
   FRule.ParentBackground := False;
   FRule.Color := ColorRule;
 
+  // The tree in its own host, wider than it by the scrollbar width: the thin
+  // bar of the form shows the scroll (Shell.FlatControls, A.5).
+  FTreeHost := TPanel.Create(AOwner);
+  FTreeHost.Parent := FHost;
+  FTreeHost.Align := alClient;
+  FTreeHost.BevelOuter := bvNone;
+  FTreeHost.ParentBackground := False;
+  FTreeHost.Color := ColorBackground;
+  FTreeHost.OnResize := TreeHostResize;
+
   FTree := TVirtualStringTree.Create(AOwner);
-  FTree.Parent := FHost;
-  FTree.Align := alClient;
+  FTree.Parent := FTreeHost;
+  FTree.ScrollBarOptions.AlwaysVisible := True;
   FTree.BorderStyle := bsNone;
   FTree.Color := ColorBackground;
   // toAutoChangeScale would reset the row height to the font's text height on
@@ -212,6 +225,11 @@ begin
   FTree.Font.Name := UiFont;
   FTree.DefaultNodeHeight := Px(RowHeight);
   FTree.Invalidate;
+end;
+
+procedure TChapterList.TreeHostResize(Sender: TObject);
+begin
+  FitHidingScrollBar(FTree, FTreeHost.ClientRect);
 end;
 
 procedure TChapterList.SetLeftPad(Value: Integer);
@@ -280,6 +298,7 @@ var
     TargetCanvas.Font.Height := -Px(HeightPx);
     TargetCanvas.Font.Color := Color;
     TargetCanvas.Font.Style := Style;
+    SetTextCharacterExtra(TargetCanvas.Handle, 0);
   end;
 
   procedure Draw(const S: string; var Area: TRect; Flags: Cardinal);
@@ -318,9 +337,13 @@ begin
     if Row.Status <> '' then
     begin
       UseFont(FUiFont, StatusPx, ColorAccent);
+      SetTextCharacterExtra(TargetCanvas.Handle, Round(Px(StatusPx) * 0.1));   // mockup .1em
       StatusWidth := TargetCanvas.TextWidth(Row.Status);
       TextR := Rect(Right - StatusWidth, R.Top, Right, R.Bottom);
-      Draw(Row.Status, TextR, DT_VCENTER or DT_RIGHT);
+      // DT_LEFT from the measured width: DrawText aligns right without the
+      // letter-spacing and the last letter fell off (seen on Windows).
+      Draw(Row.Status, TextR, DT_VCENTER or DT_LEFT);
+      SetTextCharacterExtra(TargetCanvas.Handle, 0);
       Right := TextR.Left - Px(16);
     end;
     if Row.Number > 0 then

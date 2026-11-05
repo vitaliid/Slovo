@@ -382,6 +382,7 @@ var
     Canvas.Font.Height := -Px(SizePx);
     Canvas.Font.Style := Style;
     Canvas.Font.Color := Color;
+    SetTextCharacterExtra(Canvas.Handle, 0);
   end;
 
   procedure DrawLine(const S: string; Left, Right: Integer; Flags: Cardinal);
@@ -412,7 +413,10 @@ begin
           Text := L(N.CaptionKey).ToUpper
         else
           Text := N.Caption.ToUpper;
-        UseFont(GroupPx, [fsBold], ColorMuted);
+        // Mockup: 10.5 px, weight 600, letter-spacing .12em.
+        UseFont(GroupPx, [], ColorMuted);
+        Canvas.Font.Name := UiFontSemiBoldName;
+        SetTracking(Canvas, 0.12);
         X := R.Left + Px(2);
         DrawLine(Text, X, Right, DT_LEFT);
         if N.Kind = lnCategory then
@@ -460,12 +464,17 @@ begin
           Right := Right - Px(DotPx) - Px(8);
         end;
 
+        // Mockup: weight 500, the book being read - 600.
         if Current then
-          UseFont(BookPx, [fsBold], ColorCurrentText)
+          UseFont(BookPx, [], ColorCurrentText)
         else if Hot then
           UseFont(BookPx, [], ColorAccent)
         else
           UseFont(BookPx, [], ColorBookText);
+        if Current then
+          Canvas.Font.Name := UiFontSemiBoldName
+        else
+          Canvas.Font.Name := UiFontMediumName;
         Canvas.Brush.Style := bsClear;
         DrawLine(N.Caption, X, Right, DT_LEFT);
       end;

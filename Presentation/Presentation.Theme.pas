@@ -13,13 +13,14 @@ type
   // What becomes known only at startup (E-04): the real text font after loading.
   TReaderTheme = record
     TextFont: string;           // 'EB Garamond' or the fallback 'Georgia'
-    UiFont: string;             // 'Segoe UI' (R6)
+    UiFont: string;             // UiFontName: 'IBM Plex Sans' or 'Segoe UI'
   end;
 
 const
   TextFontName = 'EB Garamond';
   TextFontFallback = 'Georgia';
-  UiFontName = 'Segoe UI';
+  UiFontPlex = 'IBM Plex Sans';
+  UiFontFallback = 'Segoe UI';
 
   // Colours (A.1)
   ColorBackground  = TColor($00FCFCFC);   // #fcfcfc
@@ -40,7 +41,8 @@ const
   RightPanelWidth  = 320;
   TextColumnMax    = 724;
   // The text column of the mockup "Читання v2" (A.5): <main> has side padding
-  // clamp(16px, 4vw, 56px); inside it the column is max-width 724px, centred,
+  // clamp(16px, 4vw, 56px); inside it the column is max-width 724px (border-box:
+  // the left padding below is inside the 724, the text is 724 - padding), centred,
   // with left padding clamp(48px, 6vw, 64px) - the margin for page markers -
   // and 44px above the breadcrumbs, 44px between them and the title.
   TextColumnSideMin     = 16;
@@ -59,6 +61,15 @@ const
   // Text size (E-11): px = 20.5 + 1.5 * Step, Step -4..+6
   BaseTextPx       = 20.5;
   ZoomStepPx       = 1.5;
+
+var
+  // The interface font, as the mockup: IBM Plex Sans ships in fonts\ (R4-17
+  // revised by Vitalii, 2026-11-06). TPrivateFonts sets these at start; until
+  // then, or when the files are missing - Segoe UI. GDI sees every weight as
+  // its own family: 500 - 'IBM Plex Sans Medm', 600 - 'IBM Plex Sans SmBld'.
+  UiFontName: string = UiFontFallback;
+  UiFontMediumName: string = UiFontFallback;
+  UiFontSemiBoldName: string = 'Segoe UI Semibold';
 
 function NewReaderTheme(const TextFont: string): TReaderTheme;
 

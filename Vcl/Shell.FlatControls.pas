@@ -13,6 +13,12 @@
     or the outlined pill "Тиша" (1 px rgba(0,0,0,.16), padding 6 14, 12 px).
 
   Sizes are 96-DPI pixels scaled by the function the form passes (E-14).
+  - TThinScrollBar: the mockup's scrollbar (::-webkit-scrollbar 9 px): no
+    arrows, no track, a rounded thumb rgba(0,0,0,.16), .28 under the mouse or
+    while dragged. It shows and moves the scroll of a target that keeps
+    scrolling itself (wheel, keys); the target's own scrollbar is pushed out
+    of its host and clipped (FitHidingScrollBar).
+
   The controls take focus by Tab: Space toggles, ←/→ switch the scope, Space
   or Enter presses a button. A button does not take focus on a click - the
   reader keeps it. *)
@@ -26,7 +32,8 @@ uses
   Winapi.Windows,
   Winapi.Messages,
   Vcl.Controls,
-  Vcl.Graphics;
+  Vcl.Graphics,
+  Vcl.StdCtrls;
 
 type
   TFlatScaleFunc = reference to function(Value: Integer): Integer;
@@ -88,6 +95,19 @@ type
 
   TFlatButtonGlyph = (fgNone, fgMenu, fgSearch, fgMore, fgClose);
 
+  // A label with CSS letter-spacing (the mockup's caps: .08-.14em): GDI
+  // SetTextCharacterExtra around DrawText, so AutoSize measures it too.
+  TTrackedLabel = class(TLabel)
+  private
+    FTracking: Single;
+    procedure SetTrackingEm(Value: Single);
+  protected
+    procedure DoDrawText(var Rect: TRect; Flags: Longint); override;
+  public
+    // In em: the extra space per letter is Tracking * the font's pixel height.
+    property Tracking: Single read FTracking write SetTrackingEm;
+  end;
+
   TFlatButton = class(TCustomControl)
   private
     FScale: TFlatScaleFunc;
@@ -125,6 +145,70 @@ type
     property OnClick;
   end;
 
+  TScrollMetrics = record
+    Pos: Integer;                        // first visible pixel (or scroll unit)
+    Page: Integer;                       // what is visible
+    Range: Integer;                      // the whole content
+  end;
+  TScrollMetricsFunc = reference to function: TScrollMetrics;
+  TScrollToProc = reference to procedure(Pos: Integer);
+
+  TThinScrollBar = class(TCustomControl)
+  private
+    FScale: TFlatScaleFunc;
+    FTarget: TWinControl;
+    FTargetWndProc: TWndMethod;
+    FMetrics: TScrollMetricsFunc;
+    FScrollTo: TScrollToProc;
+    FM: TScrollMetrics;
+    FHot: Boolean;
+    FDrag: Boolean;
+    FDragOffset: Integer;
+    function Px(Value: Integer): Integer;
+    function Scrollable: Boolean;
+    function ThumbRect: TRect;
+    procedure ScrollBy(Delta: Integer);
+    procedure TargetWndProc(var Message: TMessage);
+    procedure CMMouseLeave(var Message: TMessage); message CM_MOUSELEAVE;
+    procedure WMMouseWheel(var Message: TMessage); message WM_MOUSEWHEEL;
+  protected
+    procedure Paint; override;
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
+    procedure MouseMove(Shift: TShiftState; X, Y: Integer); override;
+    procedure MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
+    procedure Notification(AComponent: TComponent; Operation: TOperation); override;
+  public
+    constructor Create(AOwner: TComponent; const Scale: TFlatScaleFunc); reintroduce;
+    destructor Destroy; override;
+    // Follows Target: its WindowProc is chained to re-read Metrics after
+    // painting, scrolling, sizing; a drag or a track click calls ScrollTo.
+    procedure Attach(Target: TWinControl; const Metrics: TScrollMetricsFunc;
+      const ScrollTo: TScrollToProc);
+    procedure Detach;
+    procedure Sync;
+    property Target: TWinControl read FTarget;
+    property Color;
+  end;
+
+// Scroll metrics of a window with its own vertical scrollbar (RichEdit):
+// GetScrollInfo / WM_VSCROLL SB_THUMBPOSITION - the same units both ways, also
+// where RichEdit scales a long document to 16 bits.
+function NativeScrollMetrics(Control: TWinControl): TScrollMetricsFunc;
+function NativeScrollTo(Control: TWinControl): TScrollToProc;
+// Control fills R of its parent, wider by the system scrollbar width: its own
+// scrollbar falls outside the parent and is clipped. The width of the text
+// stays the same only if that scrollbar never hides (ES_DISABLENOSCROLL,
+// VST ScrollBarOptions.AlwaysVisible).
+procedure FitHidingScrollBar(Control: TWinControl; const R: TRect);
+
+// letter-spacing for DrawText / TextWidth on Canvas with its font already set
+// (em of the font's pixel height); 0 - back to normal.
+procedure SetTracking(Canvas: TCanvas; Em: Single);
+// The mockup's line glyphs (16 x 16 SVG box, stroke 1.5, round caps), Size px,
+// centred in R.
+procedure PaintLineGlyph(Canvas: TCanvas; Glyph: TFlatButtonGlyph; const R: TRect;
+  Size: Integer; Color: TColor);
+
 // A filled rounded rectangle with a 1 px border; Border = clNone - no border.
 procedure PaintRoundRect(Canvas: TCanvas; const R: TRect; Radius: Single; Fill, Border: TColor);
 // The mockup box: Size (14) frame, an Inner (8) accent square when checked.
@@ -150,6 +234,7 @@ implementation
 uses
   System.UITypes,
   System.Math,
+  Vcl.Forms,
   Winapi.GDIPAPI,
   Winapi.GDIPOBJ,
   Presentation.Theme;
@@ -218,6 +303,40 @@ begin
     end;
   finally
     G.Free;
+  end;
+end;
+
+procedure SetTracking(Canvas: TCanvas; Em: Single);
+begin
+  SetTextCharacterExtra(Canvas.Handle, Round(Abs(Canvas.Font.Height) * Em));
+end;
+
+{ TTrackedLabel }
+
+procedure TTrackedLabel.SetTrackingEm(Value: Single);
+begin
+  FTracking := Value;
+  AdjustBounds;
+  Invalidate;
+end;
+
+procedure TTrackedLabel.DoDrawText(var Rect: TRect; Flags: Longint);
+var
+  Text: string;
+begin
+  Canvas.Font := Font;
+  SetTextCharacterExtra(Canvas.Handle, Round(Abs(Font.Height) * FTracking));
+  try
+    inherited;
+    // DrawText's DT_CALCRECT leaves the extra spacing out (seen on Windows:
+    // "SLOV"); GetTextExtentPoint32 counts it - AutoSize takes the wider one.
+    if (Flags and DT_CALCRECT) <> 0 then
+    begin
+      Text := GetLabelText;
+      Rect.Right := Max(Rect.Right, Rect.Left + Canvas.TextWidth(Text));
+    end;
+  finally
+    SetTextCharacterExtra(Canvas.Handle, 0);
   end;
 end;
 
@@ -604,8 +723,13 @@ begin
   Result := Canvas.TextWidth(Caption) + 2 * Px(14) + 2;
 end;
 
-// The mockup's SVG glyphs, a 16 x 16 box, stroke 1.5, round caps.
 procedure TFlatButton.PaintGlyph(Fore: TColor);
+begin
+  PaintLineGlyph(Canvas, FGlyph, ClientRect, Px(16), Fore);
+end;
+
+procedure PaintLineGlyph(Canvas: TCanvas; Glyph: TFlatButtonGlyph; const R: TRect;
+  Size: Integer; Color: TColor);
 var
   G: TGPGraphics;
   Pen: TGPPen;
@@ -619,17 +743,17 @@ var
   end;
 
 begin
-  S := Px(16) / 16;
-  X := (Width - 16 * S) / 2;
-  Y := (Height - 16 * S) / 2;
+  S := Size / 16;
+  X := R.Left + (R.Width - 16 * S) / 2;
+  Y := R.Top + (R.Height - 16 * S) / 2;
   G := TGPGraphics.Create(Canvas.Handle);
-  Pen := TGPPen.Create(ToArgb(Fore), 1.5 * S);
-  Brush := TGPSolidBrush.Create(ToArgb(Fore));
+  Pen := TGPPen.Create(ToArgb(Color), 1.5 * S);
+  Brush := TGPSolidBrush.Create(ToArgb(Color));
   try
     G.SetSmoothingMode(SmoothingModeAntiAlias);
     Pen.SetStartCap(LineCapRound);
     Pen.SetEndCap(LineCapRound);
-    case FGlyph of
+    case Glyph of
       fgMenu:
         begin
           Line(2, 4, 14, 4);
@@ -767,6 +891,258 @@ procedure TFlatButton.CMEnabledChanged(var Message: TMessage);
 begin
   inherited;
   Invalidate;
+end;
+
+{ scroll helpers }
+
+function NativeScrollMetrics(Control: TWinControl): TScrollMetricsFunc;
+begin
+  Result := function: TScrollMetrics
+    var
+      SI: TScrollInfo;
+    begin
+      Result := Default(TScrollMetrics);
+      if not Control.HandleAllocated then
+        Exit;
+      SI.cbSize := SizeOf(SI);
+      SI.fMask := SIF_ALL;
+      if not GetScrollInfo(Control.Handle, SB_VERT, SI) then
+        Exit;
+      Result.Range := SI.nMax - SI.nMin + 1;
+      Result.Page := Integer(SI.nPage);
+      Result.Pos := SI.nPos - SI.nMin;
+    end;
+end;
+
+function NativeScrollTo(Control: TWinControl): TScrollToProc;
+begin
+  Result := procedure(Pos: Integer)
+    var
+      SI: TScrollInfo;
+    begin
+      SI.cbSize := SizeOf(SI);
+      SI.fMask := SIF_RANGE;
+      if not GetScrollInfo(Control.Handle, SB_VERT, SI) then
+        Exit;
+      SendMessage(Control.Handle, WM_VSCROLL, MakeWParam(SB_THUMBPOSITION, Word(Pos + SI.nMin)), 0);
+      SendMessage(Control.Handle, WM_VSCROLL, MakeWParam(SB_ENDSCROLL, 0), 0);
+    end;
+end;
+
+procedure FitHidingScrollBar(Control: TWinControl; const R: TRect);
+begin
+  Control.SetBounds(R.Left, R.Top,
+    R.Width + GetSystemMetricsForDpi(SM_CXVSCROLL, Control.CurrentPPI), R.Height);
+end;
+
+{ TThinScrollBar }
+
+const
+  ThumbMin = 24;
+
+constructor TThinScrollBar.Create(AOwner: TComponent; const Scale: TFlatScaleFunc);
+begin
+  inherited Create(AOwner);
+  FScale := Scale;
+  ControlStyle := ControlStyle + [csOpaque] - [csDoubleClicks];
+  DoubleBuffered := True;
+  Color := ColorBackground;
+  Width := Px(9);
+end;
+
+destructor TThinScrollBar.Destroy;
+begin
+  Detach;
+  inherited;
+end;
+
+function TThinScrollBar.Px(Value: Integer): Integer;
+begin
+  Result := FScale(Value);
+end;
+
+procedure TThinScrollBar.Attach(Target: TWinControl; const Metrics: TScrollMetricsFunc;
+  const ScrollTo: TScrollToProc);
+begin
+  if Target = FTarget then
+    Exit;
+  Detach;
+  FTarget := Target;
+  FMetrics := Metrics;
+  FScrollTo := ScrollTo;
+  FTarget.FreeNotification(Self);
+  FTargetWndProc := FTarget.WindowProc;
+  FTarget.WindowProc := TargetWndProc;
+  Sync;
+end;
+
+procedure TThinScrollBar.Detach;
+begin
+  if FTarget = nil then
+    Exit;
+  if not (csDestroying in FTarget.ComponentState) then
+  begin
+    FTarget.WindowProc := FTargetWndProc;
+    FTarget.RemoveFreeNotification(Self);
+  end;
+  FTarget := nil;
+  FMetrics := nil;
+  FScrollTo := nil;
+  Sync;
+end;
+
+procedure TThinScrollBar.Notification(AComponent: TComponent; Operation: TOperation);
+begin
+  inherited;
+  if (Operation = opRemove) and (AComponent = FTarget) then
+  begin
+    FTarget := nil;                      // its WindowProc dies with it
+    FMetrics := nil;
+    FScrollTo := nil;
+  end;
+end;
+
+procedure TThinScrollBar.TargetWndProc(var Message: TMessage);
+begin
+  FTargetWndProc(Message);
+  if (FTarget = nil) or (csDestroying in FTarget.ComponentState) then
+    Exit;
+  case Message.Msg of
+    WM_PAINT, WM_SIZE, WM_VSCROLL, WM_MOUSEWHEEL, WM_KEYDOWN, WM_KEYUP,
+    WM_LBUTTONUP, WM_WINDOWPOSCHANGED:
+      Sync;
+  end;
+end;
+
+procedure TThinScrollBar.Sync;
+var
+  M: TScrollMetrics;
+begin
+  if (FTarget <> nil) and Assigned(FMetrics) then
+    M := FMetrics()
+  else
+    M := Default(TScrollMetrics);
+  if (M.Pos <> FM.Pos) or (M.Page <> FM.Page) or (M.Range <> FM.Range) then
+  begin
+    FM := M;
+    Invalidate;
+  end;
+end;
+
+function TThinScrollBar.Scrollable: Boolean;
+begin
+  Result := (FTarget <> nil) and (FM.Page > 0) and (FM.Range > FM.Page);
+end;
+
+function TThinScrollBar.ThumbRect: TRect;
+var
+  H, Top: Integer;
+begin
+  if not Scrollable then
+    Exit(Rect(0, 0, 0, 0));
+  H := Max(MulDiv(ClientHeight, FM.Page, FM.Range), Px(ThumbMin));
+  H := Min(H, ClientHeight);
+  Top := MulDiv(ClientHeight - H, EnsureRange(FM.Pos, 0, FM.Range - FM.Page), FM.Range - FM.Page);
+  Result := Rect(0, Top, ClientWidth, Top + H);
+end;
+
+procedure TThinScrollBar.Paint;
+var
+  T: TRect;
+  Alpha: Single;
+begin
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Brush.Color := Color;
+  Canvas.FillRect(ClientRect);
+  if not Scrollable then
+    Exit;
+  T := ThumbRect;
+  if FHot or FDrag then
+    Alpha := 0.28
+  else
+    Alpha := 0.16;
+  PaintRoundRect(Canvas, T, ClientWidth / 2, Shade(Color, Alpha), clNone);
+end;
+
+procedure TThinScrollBar.ScrollBy(Delta: Integer);
+begin
+  if not Scrollable or not Assigned(FScrollTo) then
+    Exit;
+  FScrollTo(EnsureRange(FM.Pos + Delta, 0, FM.Range - FM.Page));
+  Sync;
+end;
+
+procedure TThinScrollBar.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+var
+  T: TRect;
+begin
+  inherited;
+  if (Button <> mbLeft) or not Scrollable then
+    Exit;
+  T := ThumbRect;
+  if (Y >= T.Top) and (Y < T.Bottom) then
+  begin
+    FDrag := True;
+    FDragOffset := Y - T.Top;
+    Invalidate;
+  end
+  else if Y < T.Top then
+    ScrollBy(-FM.Page)                   // a click on the track: a page, as the browser
+  else
+    ScrollBy(FM.Page);
+end;
+
+procedure TThinScrollBar.MouseMove(Shift: TShiftState; X, Y: Integer);
+var
+  T: TRect;
+  Track: Integer;
+  Hot: Boolean;
+begin
+  inherited;
+  T := ThumbRect;
+  if FDrag and Assigned(FScrollTo) then
+  begin
+    Track := ClientHeight - T.Height;
+    if Track > 0 then
+    begin
+      FScrollTo(EnsureRange(MulDiv(Y - FDragOffset, FM.Range - FM.Page, Track), 0, FM.Range - FM.Page));
+      Sync;
+    end;
+    Exit;
+  end;
+  Hot := (Y >= T.Top) and (Y < T.Bottom);
+  if Hot <> FHot then
+  begin
+    FHot := Hot;
+    Invalidate;
+  end;
+end;
+
+procedure TThinScrollBar.MouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+begin
+  inherited;
+  if FDrag then
+  begin
+    FDrag := False;
+    Invalidate;
+  end;
+end;
+
+procedure TThinScrollBar.CMMouseLeave(var Message: TMessage);
+begin
+  inherited;
+  if FHot then
+  begin
+    FHot := False;
+    Invalidate;
+  end;
+end;
+
+// The wheel over the bar scrolls its target.
+procedure TThinScrollBar.WMMouseWheel(var Message: TMessage);
+begin
+  if (FTarget <> nil) and FTarget.HandleAllocated then
+    Message.Result := SendMessage(FTarget.Handle, Message.Msg, Message.WParam, Message.LParam);
 end;
 
 end.

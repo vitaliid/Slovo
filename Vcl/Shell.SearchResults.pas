@@ -286,10 +286,11 @@ begin
             Text := FSectionCaption(FSections[Data.Section].Kind).ToUpper
           else
             Text := '';
-          TargetCanvas.Font.Name := FUiFont;
+          TargetCanvas.Font.Name := UiFontSemiBoldName;
           TargetCanvas.Font.Height := -Px(SectionPx);
-          TargetCanvas.Font.Style := [fsBold];
+          TargetCanvas.Font.Style := [];
           TargetCanvas.Font.Color := ColorMuted;
+          SetTextCharacterExtra(TargetCanvas.Handle, Round(Px(SectionPx) * 0.1));
         end
         else
         begin
@@ -302,6 +303,7 @@ begin
         TextR := Rect(R.Left + Px(2), R.Top, R.Right - Px(4), R.Bottom);
         Winapi.Windows.DrawText(TargetCanvas.Handle, PChar(Text), Length(Text), TextR,
           DT_SINGLELINE or DT_VCENTER or DT_LEFT or DT_NOPREFIX or DT_END_ELLIPSIS);
+        SetTextCharacterExtra(TargetCanvas.Handle, 0);
       end;
     nkRow:
       begin
@@ -359,8 +361,10 @@ begin
   Canvas.Font.Style := [];
   Canvas.Font.Color := ColorMuted;
   TextR := Rect(Left, R.Top + Px(RowPadY), Right, R.Top + Px(RowPadY) + Px(15));
+  SetTextCharacterExtra(Canvas.Handle, Round(Px(RefPx) * 0.08));   // mockup .08em
   Winapi.Windows.DrawText(Canvas.Handle, PChar(Row.RefText), Length(Row.RefText), TextR,
     DT_SINGLELINE or DT_TOP or DT_LEFT or DT_NOPREFIX or DT_END_ELLIPSIS);
+  SetTextCharacterExtra(Canvas.Handle, 0);
 
   X := Left;
   Y := TextR.Bottom + Px(5);

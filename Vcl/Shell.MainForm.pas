@@ -46,6 +46,15 @@ uses
   Shell.ErrorBannerFrame;
 
 type
+  // Interposer (the .dfm's redReader): ES_DISABLENOSCROLL keeps the reader's own
+  // scrollbar always there - disabled when the chapter fits - so the text width
+  // never jumps; that scrollbar is pushed out of the column and clipped, the
+  // thin bar of the centre shows the scroll (A.5).
+  TRichEdit = class(Vcl.ComCtrls.TRichEdit)
+  protected
+    procedure CreateParams(var Params: TCreateParams); override;
+  end;
+
   // The last chapter shown - re-rendered when the language changes ("Розділ N").
   TShownChapter = (scNone, scBook, scBible);
 
@@ -71,8 +80,6 @@ type
     pnlCrumbs: TPanel;
     redReader: TRichEdit;
     pnlChapterNav: TPanel;
-    btnPrevChapter: TButton;
-    btnNextChapter: TButton;
     procedure FormCreate(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure pnlCenterResize(Sender: TObject);
@@ -133,6 +140,8 @@ type
     FRightPanel: TPanel;
     FSearchTitle: TLabel;
     FSearchEdit: TEdit;
+    FSearchRow: TPanel;
+    FSearchIcon: TPaintBox;
     FScopeTitle: TLabel;
     FScope: TScopeSwitch;
     FExactPhrase: TFlatCheckBox;
@@ -147,6 +156,7 @@ type
     FSearchHint: string;
     FSearchEditWndProc: TWndMethod;
     procedure SearchEditWndProc(var Message: TMessage);
+    procedure SearchIconPaint(Sender: TObject);
     procedure SearchEditChange(Sender: TObject);
     procedure CreateRightPanel;
     procedure OpenSearch;
@@ -179,6 +189,21 @@ type
     procedure MoreButtonClick(Sender: TObject);
 
   private
+    // Thin scrollbars (mockup ::-webkit-scrollbar 9 px), full height at the
+    // right edge of each zone (Vitalii, 2026-11-06): the library, the centre
+    // (the reader or the shelf / toc list - re-attached in ShowView), the
+    // results. The controls' own scrollbars are clipped in their hosts.
+    FLeftBar: TThinScrollBar;
+    FCenterBar: TThinScrollBar;
+    FRightBar: TThinScrollBar;
+    FLibraryHost: TPanel;
+    FResultsHost: TPanel;
+    FReaderHost: TPanel;
+    procedure LibraryHostResize(Sender: TObject);
+    procedure ResultsHostResize(Sender: TObject);
+    procedure ReaderHostResize(Sender: TObject);
+
+  private
     // A.5, as the mockup: the user's choice of the side panels (settings.ini)
     // and what the window shows are apart - a narrow window hides a panel only
     // while it is narrow (< 1180: the right one, < 780: the left one), a panel
@@ -207,14 +232,31 @@ type
     // the chapter buttons; visible only when the chapter has matches.
     FHitNav: TPanel;
     FHitBox: TPanel;
-    FHitPrev: TButton;
+    FHitPrev: TFlatButton;
     FHitLabel: TLabel;
-    FHitNext: TButton;
+    FHitNext: TFlatButton;
     FHitQuery: string;                   // the query the shown highlights came from
     FFocusMatch: Integer;                // the current word in the open chapter; -1 = none
     FMatchCount: Integer;                // highlighted words in the open chapter
     procedure CreateHitNav;
     procedure UpdateHitNav;
+
+  private
+    // The chapter bar under the text (A.2, as the mockup's end-of-chapter
+    // links, but fixed at the bottom - Vitalii, 2026-11-05): a hairline over
+    // the text width, "← Розділ 2 · Створення" left, "Розділ 4 · … →" right,
+    // EB Garamond 17 px #6b6b6b, hover - the accent; the match navigator
+    // between them.
+    FPrevLink: TLabel;
+    FNextLink: TLabel;
+    procedure CreateChapterLinks;
+    procedure UpdateChapterLinks;
+    procedure ChapterBarResize(Sender: TObject);
+    function NeighbourCaption(Delta: Integer; out Caption: string): Boolean;
+    procedure LinkMouseEnter(Sender: TObject);
+    procedure LinkMouseLeave(Sender: TObject);
+    procedure PrevLinkClick(Sender: TObject);
+    procedure NextLinkClick(Sender: TObject);
     procedure HitNavResize(Sender: TObject);
     procedure HitPrevClick(Sender: TObject);
     procedure HitNextClick(Sender: TObject);
@@ -263,7 +305,8 @@ uses
   Vcl.Dialogs,
   Presentation.Localization,
   Infrastructure.SQLite3.Database,
-  Shell.RichEdit;
+  Shell.RichEdit,
+  VirtualTrees.BaseTree;
 
 {$R *.dfm}
 
@@ -283,6 +326,37 @@ end;
 function ZoomPx(Step: Integer): Double;
 begin
   Result := BaseTextPx + ZoomStepPx * Step;
+end;
+
+{ TRichEdit }
+
+procedure TRichEdit.CreateParams(var Params: TCreateParams);
+begin
+  inherited;
+  Params.Style := Params.Style or $2000;           // ES_DISABLENOSCROLL
+end;
+
+{ scrolling of the VSTs for the thin bars }
+
+type
+  TTreeAccess = class(TBaseVirtualTree);  // RangeY is protected in VST 8.3
+
+function TreeMetrics(Tree: TBaseVirtualTree): TScrollMetricsFunc;
+begin
+  Result := function: TScrollMetrics
+    begin
+      Result.Range := Integer(TTreeAccess(Tree).RangeY);
+      Result.Page := Tree.ClientHeight;
+      Result.Pos := -Tree.OffsetY;
+    end;
+end;
+
+function TreeScrollTo(Tree: TBaseVirtualTree): TScrollToProc;
+begin
+  Result := procedure(Pos: Integer)
+    begin
+      Tree.OffsetY := -Pos;
+    end;
 end;
 
 { form }
@@ -308,8 +382,22 @@ begin
   pnlCrumbs.Margins.Top := ScaleValue(TextColumnTop);
   pnlCrumbs.Margins.Bottom := ScaleValue(CrumbsBottom);
   pnlCrumbs.Height := ScaleValue(18);
-  redReader.AlignWithMargins := True;
   pnlChapterNav.AlignWithMargins := True;
+
+  // The reader in its own host: placed by hand (ReaderHostResize), wider than
+  // the column by its clipped scrollbar.
+  FReaderHost := TPanel.Create(Self);
+  FReaderHost.Parent := pnlColumn;
+  FReaderHost.Align := alClient;
+  FReaderHost.BevelOuter := bvNone;
+  FReaderHost.ParentBackground := False;
+  FReaderHost.Color := ColorBackground;
+  redReader.Parent := FReaderHost;
+  redReader.Align := alNone;
+  FReaderHost.OnResize := ReaderHostResize;
+  FCenterBar := TThinScrollBar.Create(Self, FScale);
+  FCenterBar.Parent := pnlCenter;
+  FCenterBar.BringToFront;
 
   // E-11: Ctrl+wheel is ours, so msftedit's own zoom never drifts from the setting.
   FReaderWndProc := redReader.WindowProc;
@@ -318,6 +406,7 @@ begin
   CreateHeader;                          // alTop first: above the side panels
   CreateLeftPanel;
   CreateRightPanel;
+  CreateChapterLinks;
   CreateHitNav;
   OnKeyPress := FormKeyPress;
   OnResize := FormResized;
@@ -358,12 +447,13 @@ procedure TMainForm.CreateHeader;
     Result.OnClick := Click;
   end;
 
-  function NewText(Px: Integer): TLabel;
+  function NewText(Px: Integer): TTrackedLabel;
   begin
-    Result := TLabel.Create(Self);
+    Result := TTrackedLabel.Create(Self);
     Result.Parent := FHeader;
     Result.ShowAccelChar := False;
     Result.Transparent := True;
+    Result.Font.Name := UiFontName;
     Result.Font.Height := -ScaleValue(Px);
     Result.Font.Color := ColorMuted;
   end;
@@ -390,8 +480,9 @@ begin
 
   FLibraryButton := NewButton(fgMenu, LibraryButtonClick);
   FBrand := NewText(11);
-  // "Slovo": caps, letter-spacing .14em - hair spaces (U+200A) between letters.
-  FBrand.Caption := 'S'#$200A'L'#$200A'O'#$200A'V'#$200A'O';
+  // "Slovo": caps, letter-spacing .14em.
+  FBrand.Caption := 'SLOVO';
+  (FBrand as TTrackedLabel).Tracking := 0.14;
   FZoomOutButton := NewButton(fgNone, actZoomOutExecute);
   FZoomOutButton.Caption := 'A'#$2212;
   FZoomOutButton.FontPx := 13;
@@ -504,6 +595,22 @@ begin
     SetLeftWanted(True);
 end;
 
+procedure TMainForm.LibraryHostResize(Sender: TObject);
+begin
+  FitHidingScrollBar(FLibraryTree.Control, FLibraryHost.ClientRect);
+end;
+
+procedure TMainForm.ResultsHostResize(Sender: TObject);
+begin
+  FitHidingScrollBar(FResultList.Control, FResultsHost.ClientRect);
+end;
+
+// The text starts after the column's left margin (A.5).
+procedure TMainForm.ReaderHostResize(Sender: TObject);
+begin
+  FitHidingScrollBar(redReader, Rect(FLeftPad, 0, FReaderHost.ClientWidth, FReaderHost.ClientHeight));
+end;
+
 procedure TMainForm.FormResized(Sender: TObject);
 begin
   ApplyLayout;
@@ -566,7 +673,21 @@ end;
 procedure TMainForm.AppMessage(var Msg: TMsg; var Handled: Boolean);
 var
   P: TPoint;
+  C: TWinControl;
 begin
+  // Mockup: the whole centre scrolls - the wheel over its margins, crumbs or
+  // chapter bar goes to the reader or the list.
+  if Msg.message = WM_MOUSEWHEEL then
+  begin
+    C := FindControl(Msg.hwnd);
+    if (C <> nil) and (FCenterBar.Target <> nil) and (C <> FCenterBar.Target)
+      and ((C = pnlCenter) or pnlCenter.ContainsControl(C)) then
+    begin
+      SendMessage(FCenterBar.Target.Handle, WM_MOUSEWHEEL, Msg.wParam, Msg.lParam);
+      Handled := True;
+    end;
+    Exit;
+  end;
   if not FSilence or (Msg.message <> WM_MOUSEMOVE) then
     Exit;
   P := ScreenToClient(Msg.pt);
@@ -595,6 +716,9 @@ begin
 end;
 
 procedure TMainForm.CreateLeftPanel;
+var
+  Border, Content: TPanel;
+  Title: TTrackedLabel;
 begin
   FLeftPanel := TPanel.Create(Self);
   FLeftPanel.Parent := Self;
@@ -604,22 +728,56 @@ begin
   FLeftPanel.ParentBackground := False;
   FLeftPanel.Color := ColorBackground;
 
-  FLibraryTitle := TLabel.Create(Self);
-  FLibraryTitle.Parent := FLeftPanel;
+  // Mockup: border-right 1px rgba(0,0,0,.09); full height only beside a client
+  // panel (alTop is laid out before alRight).
+  Border := TPanel.Create(Self);
+  Border.Parent := FLeftPanel;
+  Border.Align := alRight;
+  Border.Width := 1;
+  Border.BevelOuter := bvNone;
+  Border.ParentBackground := False;
+  Border.Color := TColor($00E6E6E6);
+  FLeftBar := TThinScrollBar.Create(Self, FScale);
+  FLeftBar.Left := Border.Left - FLeftBar.Width;     // alRight: left of the border
+  FLeftBar.Parent := FLeftPanel;
+  FLeftBar.Align := alRight;
+  Content := TPanel.Create(Self);
+  Content.Parent := FLeftPanel;
+  Content.Align := alClient;
+  Content.BevelOuter := bvNone;
+  Content.ParentBackground := False;
+  Content.Color := ColorBackground;
+
+  Title := TTrackedLabel.Create(Self);
+  Title.Tracking := 0.11;
+  FLibraryTitle := Title;
+  FLibraryTitle.Parent := Content;
   FLibraryTitle.Align := alTop;
   FLibraryTitle.AlignWithMargins := True;
   // Mockup: aside padding 26 10 40 18, the caption 10.5 px caps, muted, 18 px below.
   FLibraryTitle.Margins.SetBounds(ScaleValue(26), ScaleValue(26), ScaleValue(12), ScaleValue(18));
+  FLibraryTitle.Font.Name := UiFontName;
   FLibraryTitle.Font.Height := -ScaleValue(11);
   FLibraryTitle.Font.Color := ColorMuted;
 
-  FLibraryTree := TLibraryTree.Create(Self, FLeftPanel,
+  FLibraryHost := TPanel.Create(Self);
+  FLibraryHost.Parent := Content;
+  FLibraryHost.Align := alClient;
+  FLibraryHost.AlignWithMargins := True;
+  FLibraryHost.Margins.SetBounds(ScaleValue(10), 0, ScaleValue(4), ScaleValue(8));
+  FLibraryHost.BevelOuter := bvNone;
+  FLibraryHost.ParentBackground := False;
+  FLibraryHost.Color := ColorBackground;
+  FLibraryHost.OnResize := LibraryHostResize;
+  FLibraryTree := TLibraryTree.Create(Self, FLibraryHost,
     function(Value: Integer): Integer
     begin
       Result := ScaleValue(Value);
     end);
-  FLibraryTree.Control.AlignWithMargins := True;
-  FLibraryTree.Control.Margins.SetBounds(ScaleValue(10), 0, ScaleValue(4), ScaleValue(8));
+  FLibraryTree.Control.Align := alNone;
+  FLibraryTree.Control.ScrollBarOptions.AlwaysVisible := True;
+  FLeftBar.Attach(FLibraryTree.Control, TreeMetrics(FLibraryTree.Control),
+    TreeScrollTo(FLibraryTree.Control));
   FLibraryTree.OnActivate := LibraryNodeActivated;
   FLibraryTree.OnCheck := LibraryNodeChecked;
 end;
@@ -628,6 +786,12 @@ end;
 // from the top - "ПОШУК", the field (EB Garamond 19 px) over a line, "ДЕ ШУКАТИ"
 // and the scope pill, the two square options (Shell.FlatControls), a line, the
 // status, the list.
+procedure TMainForm.SearchIconPaint(Sender: TObject);
+begin
+  PaintLineGlyph(FSearchIcon.Canvas, fgSearch,
+    Rect(0, 0, ScaleValue(14), FSearchIcon.Height), ScaleValue(14), ColorMarker);
+end;
+
 procedure TMainForm.CreateRightPanel;
 var
   Order: Integer;
@@ -643,9 +807,14 @@ var
     Control.Margins.SetBounds(ScaleValue(Left), ScaleValue(Top), ScaleValue(Right), ScaleValue(Bottom));
   end;
 
-  function NewCaption(Px: Integer): TLabel;
+  function NewCaption(Px: Integer; Tracking: Single): TLabel;
+  var
+    Caption: TTrackedLabel;
   begin
-    Result := TLabel.Create(Self);
+    Caption := TTrackedLabel.Create(Self);
+    Caption.Tracking := Tracking;
+    Result := Caption;
+    Result.Font.Name := UiFontName;
     Result.ShowAccelChar := False;
     Result.Font.Height := -ScaleValue(Px);
     Result.Font.Color := ColorMuted;
@@ -678,6 +847,9 @@ begin
   Border.Width := 1;
   // The line runs the full height only beside a client panel: VCL lays out
   // alTop children before alLeft ones.
+  FRightBar := TThinScrollBar.Create(Self, FScale);
+  FRightBar.Parent := FRightPanel;
+  FRightBar.Align := alRight;
   Content := TPanel.Create(Self);
   Content.Parent := FRightPanel;
   Content.Align := alClient;
@@ -685,7 +857,7 @@ begin
   Content.ParentBackground := False;
   Content.Color := ColorBackground;
 
-  FSearchTitle := NewCaption(11);
+  FSearchTitle := NewCaption(11, 0.11);
   Place(FSearchTitle, 22, 26, 22, 16);
 
   FSearchEdit := TEdit.Create(Self);
@@ -699,10 +871,22 @@ begin
   // not show in a borderless edit (seen on Windows 11).
   FSearchEditWndProc := FSearchEdit.WindowProc;
   FSearchEdit.WindowProc := SearchEditWndProc;
-  Place(FSearchEdit, 22, 0, 22, 0);
+  // Mockup: the 14 px magnifier #8a8a8a, gap 10, then the field.
+  FSearchRow := TPanel.Create(Self);
+  FSearchRow.BevelOuter := bvNone;
+  FSearchRow.ParentBackground := False;
+  FSearchRow.Color := ColorBackground;
+  Place(FSearchRow, 22, 0, 22, 0);
+  FSearchIcon := TPaintBox.Create(Self);
+  FSearchIcon.Parent := FSearchRow;
+  FSearchIcon.Align := alLeft;
+  FSearchIcon.Width := ScaleValue(14 + 10);
+  FSearchIcon.OnPaint := SearchIconPaint;
+  FSearchEdit.Parent := FSearchRow;
+  FSearchEdit.Align := alClient;
   Place(NewLine(TColor($00D1D1D1)), 22, 9, 22, 0);   // rgba(0,0,0,.18)
 
-  FScopeTitle := NewCaption(11);
+  FScopeTitle := NewCaption(11, 0.08);
   Place(FScopeTitle, 22, 20, 22, 8);
   FScope := TScopeSwitch.Create(Self,
     function(Value: Integer): Integer
@@ -726,16 +910,28 @@ begin
   Place(FWordForms, 22, 11, 22, 0);
 
   Place(NewLine(TColor($00E6E6E6)), 22, 24, 22, 0);
-  FSearchStatus := NewCaption(11);
+  FSearchStatus := NewCaption(11, 0.1);
   Place(FSearchStatus, 22, 14, 22, 8);
 
-  FResultList := TSearchResultList.Create(Self, Content,
+  FResultsHost := TPanel.Create(Self);
+  FResultsHost.Parent := Content;
+  FResultsHost.Top := Order * 1000 + 1000;           // after the alTop rows
+  FResultsHost.Align := alClient;
+  FResultsHost.AlignWithMargins := True;
+  FResultsHost.Margins.SetBounds(ScaleValue(9), 0, ScaleValue(9), ScaleValue(8));
+  FResultsHost.BevelOuter := bvNone;
+  FResultsHost.ParentBackground := False;
+  FResultsHost.Color := ColorBackground;
+  FResultsHost.OnResize := ResultsHostResize;
+  FResultList := TSearchResultList.Create(Self, FResultsHost,
     function(Value: Integer): Integer
     begin
       Result := ScaleValue(Value);
     end);
-  FResultList.Control.AlignWithMargins := True;
-  FResultList.Control.Margins.SetBounds(ScaleValue(9), 0, ScaleValue(9), ScaleValue(8));
+  FResultList.Control.Align := alNone;
+  FResultList.Control.ScrollBarOptions.AlwaysVisible := True;
+  FRightBar.Attach(FResultList.Control, TreeMetrics(FResultList.Control),
+    TreeScrollTo(FResultList.Control));
   FResultList.SectionCaption := function(Section: TResultSectionKind): string
     begin
       if Section = rsBooks then
@@ -794,7 +990,12 @@ begin
   FChapterList.ApplyFonts(FTheme.TextFont, FTheme.UiFont);
   FResultList.ApplyFonts(FTheme.TextFont, FTheme.UiFont);
   FSearchEdit.Font.Name := FTheme.TextFont;
+  FPrevLink.Font.Name := FTheme.TextFont;
+  FNextLink.Font.Name := FTheme.TextFont;
   FSearchEdit.Font.Height := -ScaleValue(19);
+  // EB Garamond 19 px with its descenders: the edit's own height is taken
+  // before the font (the placeholder was cut at the bottom).
+  FSearchRow.Height := ScaleValue(28);
   FScope.WholeLibrary := FSettings.GetSearchWholeLibrary;
   FExactPhrase.Checked := FSettings.GetExactPhrase;
   FWordForms.Checked := FSettings.GetWordForms;
@@ -900,8 +1101,8 @@ begin
     ShowSearchReply(FLastReply)          // "Розділ N" in the reference lines
   else
     FResultList.Invalidate;
-  actPrevChapter.Caption := '‹  ' + L('read.prevChapter');
-  actNextChapter.Caption := L('read.nextChapter') + '  ›';
+  FPrevLink.Hint := L('read.prevChapter') + ' (←)';
+  FNextLink.Hint := L('read.nextChapter') + ' (→)';
   FHitPrev.Hint := L('read.prevHit') + ' (Shift+F3)';
   FHitNext.Hint := L('read.nextHit') + ' (F3)';
   UpdateHitNav;
@@ -933,15 +1134,20 @@ begin
   // numbers inside it (mockup: number at left -64px).
   FLeftPad := LeftPad;
   pnlCrumbs.Margins.Left := LeftPad;
-  redReader.Margins.SetBounds(LeftPad, 0, 0, 0);
   pnlChapterNav.Margins.SetBounds(LeftPad, 0, 0, 0);
   if FChapterList <> nil then
     FChapterList.SetLeftPad(LeftPad);
-  pnlColumn.Width := Max(Min(ScaleValue(TextColumnMax) + LeftPad,
-    pnlCenter.ClientWidth - 2 * Side), 0);
+  // border-box as the mockup's CSS: the left margin is inside the 724 px.
+  pnlColumn.Width := Max(Min(ScaleValue(TextColumnMax), pnlCenter.ClientWidth - 2 * Side), 0);
   pnlColumn.Left := (pnlCenter.ClientWidth - pnlColumn.Width) div 2;
   pnlColumn.Top := 0;
   pnlColumn.Height := pnlCenter.ClientHeight;
+  if FReaderHost <> nil then
+    ReaderHostResize(nil);
+  // Mockup: the scrollbar of <main> - at the right edge of the centre.
+  if FCenterBar <> nil then
+    FCenterBar.SetBounds(pnlCenter.ClientWidth - FCenterBar.Width, 0, FCenterBar.Width,
+      pnlCenter.ClientHeight);
 end;
 
 procedure TMainForm.ShowView(View: TReaderView);
@@ -949,7 +1155,7 @@ begin
   // A.5: the shelf and the table of contents leave «Тиша»; ‹ › keep it.
   if View <> rvRead then
     SetSilence(False);
-  redReader.Visible := View = rvRead;
+  FReaderHost.Visible := View = rvRead;
   pnlChapterNav.Visible := View = rvRead;
   FChapterList.Host.Visible := View <> rvRead;
   case View of
@@ -957,6 +1163,11 @@ begin
     rvToc:   FillToc;
   end;
   UpdateCrumbs;
+  if View = rvRead then
+    FCenterBar.Attach(redReader, NativeScrollMetrics(redReader), NativeScrollTo(redReader))
+  else
+    FCenterBar.Attach(FChapterList.Tree, TreeMetrics(FChapterList.Tree),
+      TreeScrollTo(FChapterList.Tree));
   // During Start the form is not shown yet: CanFocus ignores the form's own
   // visibility, Showing does not.
   if (View = rvRead) and redReader.Showing then
@@ -1034,8 +1245,12 @@ end;
 procedure TMainForm.AddCrumb(const Caption: string; const Action: TProc);
 
   function NewLabel(const Text: string; Color: TColor): TLabel;
+  var
+    Crumb: TTrackedLabel;
   begin
-    Result := TLabel.Create(Self);
+    Crumb := TTrackedLabel.Create(Self);
+    Crumb.Tracking := 0.08;              // mockup: 11 px caps, letter-spacing .08em
+    Result := Crumb;
     Result.Left := 100000 + pnlCrumbs.ControlCount;     // alLeft keeps creation order
     Result.Parent := pnlCrumbs;
     Result.Align := alLeft;
@@ -1643,12 +1858,13 @@ end;
 
 procedure TMainForm.CreateHitNav;
 
-  function NewButton(const Caption: string; const OnClick: TNotifyEvent): TButton;
+  function NewButton(const Caption: string; const OnClick: TNotifyEvent): TFlatButton;
   begin
-    Result := TButton.Create(Self);
+    Result := TFlatButton.Create(Self, FScale);
     Result.Parent := FHitBox;
     Result.Align := alLeft;
     Result.Caption := Caption;
+    Result.FontPx := 17;
     Result.Width := ScaleValue(28);
     Result.TabStop := False;
     Result.ShowHint := True;
@@ -1656,7 +1872,7 @@ procedure TMainForm.CreateHitNav;
   end;
 
 begin
-  // Between the alLeft / alRight chapter buttons: the client area of the bar.
+  // Between the alLeft / alRight chapter links: the client area of the bar.
   FHitNav := TPanel.Create(Self);
   FHitNav.Parent := pnlChapterNav;
   FHitNav.Align := alClient;
@@ -1703,6 +1919,7 @@ procedure TMainForm.UpdateHitNav;
 var
   Count, Focus: Integer;
 begin
+  UpdateChapterLinks;
   Count := 0;
   Focus := -1;
   if (FViewModel <> nil) and (FShown <> scNone) then
@@ -1712,12 +1929,135 @@ begin
   end;
   FHitNav.Visible := Count > 0;
   if Count = 0 then
+  begin
+    ChapterBarResize(nil);
     Exit;
+  end;
   if Focus >= 0 then
     FHitLabel.Caption := L('read.hitNav', [FHitQuery, Focus + 1, Count])
   else
     FHitLabel.Caption := L('read.hitCount', [FHitQuery, Count]);
   HitNavResize(nil);
+  ChapterBarResize(nil);                 // the links share the bar with the navigator
+end;
+
+{ the chapter bar (A.2) }
+
+procedure TMainForm.CreateChapterLinks;
+
+  function NewLink(Alignment: TAlignment; Align: TAlign; const Click: TNotifyEvent): TLabel;
+  begin
+    Result := TLabel.Create(Self);
+    Result.Parent := pnlChapterNav;
+    Result.AutoSize := False;
+    Result.Align := Align;
+    Result.Alignment := Alignment;
+    Result.Layout := tlCenter;
+    Result.ShowAccelChar := False;
+    Result.EllipsisPosition := epEndEllipsis;
+    Result.Transparent := True;
+    Result.Cursor := crHandPoint;
+    Result.ShowHint := True;
+    Result.Font.Height := -ScaleValue(17);
+    Result.Font.Color := ColorButtonText;
+    Result.OnClick := Click;
+    Result.OnMouseEnter := LinkMouseEnter;
+    Result.OnMouseLeave := LinkMouseLeave;
+  end;
+
+var
+  Line: TPanel;
+begin
+  pnlChapterNav.Height := ScaleValue(64);
+  pnlChapterNav.OnResize := ChapterBarResize;
+  Line := TPanel.Create(Self);
+  Line.Parent := pnlChapterNav;
+  Line.Align := alTop;
+  Line.Height := 1;
+  Line.BevelOuter := bvNone;
+  Line.ParentBackground := False;
+  Line.Color := TColor($00E6E6E6);       // rgba(0,0,0,.09)
+  FPrevLink := NewLink(taLeftJustify, alLeft, PrevLinkClick);
+  FNextLink := NewLink(taRightJustify, alRight, NextLinkClick);
+end;
+
+// Mockup: chLabel - "Розділ N · Назва" for a book, the title for a Bible chapter.
+function TMainForm.NeighbourCaption(Delta: Integer; out Caption: string): Boolean;
+var
+  P: TReadingPosition;
+  T: TChapterRef;
+  TB: TBibleChapterRef;
+begin
+  Result := False;
+  Caption := '';
+  if (FViewModel = nil) or (FViewModel.View <> rvRead) or (FShown = scNone) then
+    Exit;
+  P := FViewModel.Position;
+  if P.Kind = ckBibleTranslation then
+  begin
+    Result := FViewModel.Catalog.Neighbour(P.BibleChapter, Delta, TB);
+    if Result then
+      Caption := FViewModel.BookTitle(TB.Book) + ' ' + IntToStr(TB.ChapterNumber);
+  end
+  else
+  begin
+    Result := FViewModel.Catalog.Neighbour(P.Chapter, Delta, T);
+    if Result then
+      Caption := L('read.chapter', [T.ChapterOrder]) + ' · ' + FViewModel.ChapterTitle(T);
+  end;
+end;
+
+procedure TMainForm.UpdateChapterLinks;
+var
+  S: string;
+begin
+  FPrevLink.Visible := NeighbourCaption(-1, S);
+  FPrevLink.Caption := '← ' + S;
+  FNextLink.Visible := NeighbourCaption(+1, S);
+  FNextLink.Caption := S + ' →';
+  ChapterBarResize(nil);
+end;
+
+// Each link takes its text's width, at most what the match navigator leaves.
+procedure TMainForm.ChapterBarResize(Sender: TObject);
+var
+  Room, Middle: Integer;
+
+  function TextWidth(Link: TLabel): Integer;
+  begin
+    Canvas.Font := Link.Font;
+    Result := Canvas.TextWidth(Link.Caption) + ScaleValue(4);
+  end;
+
+begin
+  if FPrevLink = nil then
+    Exit;
+  Middle := 0;
+  if (FHitNav <> nil) and FHitNav.Visible then
+    Middle := FHitBox.Width + ScaleValue(24);
+  Room := Max((pnlChapterNav.ClientWidth - Middle) div 2, 0);
+  FPrevLink.Width := Min(TextWidth(FPrevLink), Room);
+  FNextLink.Width := Min(TextWidth(FNextLink), Room);
+end;
+
+procedure TMainForm.LinkMouseEnter(Sender: TObject);
+begin
+  (Sender as TLabel).Font.Color := ColorAccent;
+end;
+
+procedure TMainForm.LinkMouseLeave(Sender: TObject);
+begin
+  (Sender as TLabel).Font.Color := ColorButtonText;
+end;
+
+procedure TMainForm.PrevLinkClick(Sender: TObject);
+begin
+  FViewModel.PreviousChapter;
+end;
+
+procedure TMainForm.NextLinkClick(Sender: TObject);
+begin
+  FViewModel.NextChapter;
 end;
 
 procedure TMainForm.HitPrevClick(Sender: TObject);
