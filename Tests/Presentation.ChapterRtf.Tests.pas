@@ -31,6 +31,7 @@ type
     [Test] procedure Book_TitleOnlyChapterDoesNotEndEmpty;
     [Test] procedure Book_RuleIsOneGlyphInEBGaramond;
     [Test] procedure Book_EveryParagraphResetsCharacterFormatting;
+    [Test] procedure Book_GapsAreSpacersNotParagraphSpace;
     [Test] procedure Book_FocusAndOtherHitsAreBakedIn;
     [Test] procedure Book_HitStartsPointAtTheFirstMatch;
     [Test] procedure Book_HitOutsideTheChapterIsMinusOne;
@@ -311,8 +312,8 @@ var
 begin
   Doc := TChapterRtfBuilder.Build(SampleChapter, 'Розділ 3', Theme, THighlightRequest.None);
   Back := ReadBack(Doc.Rtf);
-  // Title, label, the empty rule paragraph, then the epigraph.
-  Assert.IsTrue(Back.Text.StartsWith('Спокуса і гріхопадіння'#13'Розділ 3'#13 + RuleTextFor(Theme) + #13'Епіграф'), Back.Text);
+  // Title, label, the rule, then the epigraph - each gap is a spacer paragraph (#13#13).
+  Assert.IsTrue(Back.Text.StartsWith('Спокуса і гріхопадіння'#13#13'Розділ 3'#13#13 + RuleTextFor(Theme) + #13#13'Епіграф'), Back.Text);
   Assert.AreEqual(0, Doc.Paragraphs[0].StartChar);
   Assert.Contains(Doc.Rtf, RtfChapterTitle);
   Assert.Contains(Doc.Rtf, RtfChapterLabel);
@@ -358,31 +359,58 @@ begin
   Chapter.Title := 'Назва з каталогу';
   Doc := TChapterRtfBuilder.Build(Chapter, 'Розділ 3', Theme, THighlightRequest.None);
   Back := ReadBack(Doc.Rtf);
-  Assert.IsTrue(Back.Text.StartsWith('Назва з каталогу'#13'Розділ 3'#13 + RuleTextFor(Theme) + #13), Back.Text);
+  Assert.IsTrue(Back.Text.StartsWith('Назва з каталогу'#13#13'Розділ 3'#13#13 + RuleTextFor(Theme) + #13#13), Back.Text);
   Assert.AreEqual(Integer(Length(Chapter.Paragraphs)), Integer(Length(Doc.Paragraphs)),
     'the title from the catalog is not a paragraph of the map');
   Assert.AreEqual(2, Doc.Paragraphs[0].LogicalIndex);
 end;
 
+function CountOf(const Sub, S: string): Integer;
+var
+  P: Integer;
+begin
+  Result := 0;
+  P := Pos(Sub, S);
+  while P > 0 do
+  begin
+    Inc(Result);
+    P := Pos(Sub, S, P + 1);
+  end;
+end;
+
 procedure TChapterRtfBuilderTests.Book_EveryParagraphResetsCharacterFormatting;
 var
   Doc: TChapterRtf;
-  Count, P: Integer;
 begin
   Doc := TChapterRtfBuilder.Build(SampleChapter, 'Розділ 3', Theme, THighlightRequest.None);
-  Count := 0;
-  P := Pos('\pard\plain', Doc.Rtf);
-  while P > 0 do
-  begin
-    Inc(Count);
-    P := Pos('\pard\plain', Doc.Rtf, P + 1);
-  end;
-  // 7 paragraphs + label + rule; the title paragraph is one of the 7.
-  Assert.AreEqual(9, Count);
+  // 7 paragraphs + label + rule (the title paragraph is one of the 7), and a
+  // spacer between every two of these 9.
+  Assert.AreEqual(9, CountOf('\pard\plain', Doc.Rtf) - CountOf(RtfSpacerStart, Doc.Rtf));
+  Assert.AreEqual(8, CountOf(RtfSpacerStart, Doc.Rtf));
   Assert.Contains(Doc.Rtf, RtfEpigraph);
   Assert.Contains(Doc.Rtf, RtfSectionHeading);
   Assert.Contains(Doc.Rtf, RtfSourceCitation);
-  Assert.IsFalse(Doc.Rtf.Contains('\sl'), 'line spacing is the font''s own (R4-08)');
+  // Line spacing of text is the font's own (R4-08): \sl only on spacers.
+  Assert.AreEqual(CountOf(RtfSpacerStart, Doc.Rtf), CountOf('\sl', Doc.Rtf) - CountOf('\slmult', Doc.Rtf));
+end;
+
+// A match at the end of a paragraph got a highlight box reaching into the gap:
+// RichEdit counts \sa into the last line and highlights the whole line height.
+// So no paragraph space at all - spacers of exact height, empty, never highlighted.
+procedure TChapterRtfBuilderTests.Book_GapsAreSpacersNotParagraphSpace;
+var
+  Doc: TChapterRtf;
+begin
+  Doc := TChapterRtfBuilder.Build(SampleChapter, 'Розділ 3', Theme, THighlightRequest.None);
+  Assert.IsFalse(Doc.Rtf.Contains('\sa'), 'no space after');
+  Assert.IsFalse(Doc.Rtf.Contains('\sb'), 'no space before');
+  // Title -> label: 120 twips; rule -> epigraph: 600; text -> text: 360.
+  Assert.Contains(Doc.Rtf, RtfSpacerStart + '120\slmult0');
+  Assert.Contains(Doc.Rtf, RtfSpacerStart + '600\slmult0');
+  Assert.Contains(Doc.Rtf, RtfSpacerStart + '360\slmult0');
+  Doc := TChapterRtfBuilder.Build(SampleBibleChapter, 'Буття', 'Розділ 3', Theme,
+    TVerseHighlightRequest.None);
+  Assert.Contains(Doc.Rtf, RtfSpacerStart + '180\slmult0');
 end;
 
 procedure TChapterRtfBuilderTests.Book_FocusAndOtherHitsAreBakedIn;
@@ -492,7 +520,7 @@ begin
   Doc := TChapterRtfBuilder.Build(Chapter, 'Буття', 'Розділ 3', Theme, TVerseHighlightRequest.None);
   Back := ReadBack(Doc.Rtf);
 
-  Assert.IsTrue(Back.Text.StartsWith('Буття'#13'Розділ 3'#13 + RuleTextFor(Theme) + #13'1 А змій'), Back.Text);
+  Assert.IsTrue(Back.Text.StartsWith('Буття'#13#13'Розділ 3'#13#13 + RuleTextFor(Theme) + #13#13'1 А змій'), Back.Text);
   Assert.AreEqual(Length(Back.Text), Doc.ExpectedChars);
   Assert.AreEqual(3, Integer(Length(Doc.Paragraphs)));
   for I := 0 to High(Doc.Paragraphs) do

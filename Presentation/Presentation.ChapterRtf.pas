@@ -10,6 +10,13 @@
   without GTL_USECRLF: every UTF-16 code unit of text is 1, every \par is 1.
   Paragraphs are SEPARATED by \par - there is none after the last one, because
   RichEdit keeps its own final paragraph mark, which it does not count.
+
+  Spacing between paragraphs is an EMPTY spacer paragraph of exact height
+  (\sl-N\slmult0), never \sa/\sb: RichEdit counts the space after a paragraph
+  into the height of its last line and paints \highlight over the whole line,
+  so a match at the end of a paragraph got a box reaching into the gap (seen on
+  Windows 11). A spacer has no text and so nothing to highlight; it costs one
+  more \par (1 character) per gap, which the writer counts like any other.
   A marker ("[71] ", "8 ") stands before StartChar, so a match position is
   StartChar + Offset with no correction.
 
@@ -70,15 +77,34 @@ type
 const
   // Paragraph styles by Kind (B-04) - the ONLY place with RTF font sizes.
   // \fs is half-points: px * 0.75 * 2. Spacing in twips: 1 px = 15 twips.
-  // Line spacing is the font's own; \sl is never set (R6, R4-08).
-  RtfChapterTitle    = '\f0\fs69\cf7\sa120';                 // 46 px
-  RtfChapterLabel    = '\f0\fs26\i\cf3\sa240';               // 17 px
-  RtfSubChapterTitle = '\sb480\sa240\f0\fs42\cf1';           // 28 px
-  RtfEpigraph        = '\li600\ri600\sa660\f0\fs29\i\cf4';   // 19 px, E-10: one block
-  RtfSectionHeading  = '\sb480\sa240\f0\fs31\b\cf1';         // real Bold file (E-04)
-  RtfSourceCitation  = '\qr\sa360\f0\fs22\i\cf3';            // 15 px
-  RtfText            = '\fi360\sa360\f0\fs31\cf1';           // 20.5 px; 24 px indent and after
-  RtfVerse           = '\sa180\f0\fs31\cf1';
+  // Line spacing of text is the font's own; \sl is set only on spacers (R6, R4-08).
+  // Space before / after a paragraph is NOT in the style: see the Space* pairs
+  // below and the spacer paragraphs (unit header).
+  RtfChapterTitle    = '\f0\fs69\cf7';                      // 46 px
+  RtfChapterLabel    = '\f0\fs26\i\cf3';                    // 17 px
+  RtfSubChapterTitle = '\f0\fs42\cf1';                      // 28 px
+  RtfEpigraph        = '\li600\ri600\f0\fs29\i\cf4';        // 19 px, E-10: one block
+  RtfSectionHeading  = '\f0\fs31\b\cf1';                    // real Bold file (E-04)
+  RtfSourceCitation  = '\qr\f0\fs22\i\cf3';                 // 15 px
+  RtfText            = '\fi360\f0\fs31\cf1';                // 20.5 px; 24 px first-line indent
+  RtfVerse           = '\f0\fs31\cf1';
+
+  // Space before / after, twips. The gap between two paragraphs is the
+  // previous After plus the next Before - what \sa + \sb gave in RichEdit.
+  SpaceTitleAfter           = 120;
+  SpaceLabelAfter           = 240;
+  SpaceRuleAfter            = 600;
+  SpaceSubChapterBefore     = 480;
+  SpaceSubChapterAfter      = 240;
+  SpaceEpigraphAfter        = 660;
+  SpaceSectionBefore        = 480;
+  SpaceSectionAfter         = 240;
+  SpaceSourceCitationAfter  = 360;
+  SpaceTextAfter            = 360;       // 24 px
+  SpaceVerseAfter           = 180;
+
+  // Start of a spacer paragraph; \fs2 keeps the empty line from growing past \sl.
+  RtfSpacerStart     = '\pard\plain\sl-';
   RtfPageMarker      = '\f1\fs16\cf2';                       // "[71] "
   RtfVerseNumber     = '\fs19\cf2';                          // "8 "
   RtfHitCurrent      = '\highlight5';
@@ -88,7 +114,7 @@ const
   // "Розділ N" on the left. ONE glyph: consecutive dashes leave gaps (side
   // bearings). EB Garamond has the three-em dash U+2E3B; Georgia does not, so
   // the fallback font gets em dashes, which Georgia draws joined.
-  RtfRule            = '\sa600\f0\fs34\cf3';     // U+2E3B at 17 pt ~ 56 px: the mockup's 58 px line
+  RtfRule            = '\f0\fs34\cf3';           // U+2E3B at 17 pt ~ 56 px: the mockup's 58 px line
   RuleTextGaramond   = #$2E3B;
   RuleTextFallback   = #$2014#$2014;
 
@@ -123,12 +149,15 @@ type
     FOut: TStringBuilder;
     FChars: Integer;
     FParagraphs: Integer;
+    FPendingAfter: Integer;                          // After of the previous paragraph, twips
   public
     constructor Create;
     destructor Destroy; override;
     procedure Raw(const S: string);
     procedure Text(const S: string);                 // escaped; counts Length(S)
-    procedure BeginParagraph(const Style: string);   // \par before every paragraph but the first
+    // \par before every paragraph but the first, and a spacer of After of the
+    // previous + Before of this one when that is more than 0.
+    procedure BeginParagraph(const Style: string; Before, After: Integer);
     function ToRtf: string;
     property Chars: Integer read FChars;
   end;
@@ -156,14 +185,23 @@ begin
   Inc(FChars, Length(S));
 end;
 
-procedure TRtfWriter.BeginParagraph(const Style: string);
+procedure TRtfWriter.BeginParagraph(const Style: string; Before, After: Integer);
+var
+  Gap: Integer;
 begin
   if FParagraphs > 0 then
   begin
     FOut.Append('\par'#13#10);
     Inc(FChars);
+    Gap := FPendingAfter + Before;
+    if Gap > 0 then
+    begin
+      FOut.Append(RtfSpacerStart).Append(Gap).Append('\slmult0\fs2 \par'#13#10);
+      Inc(FChars);
+    end;
   end;
   Inc(FParagraphs);
+  FPendingAfter := After;
   // \plain resets the character formatting: italic of an epigraph must not
   // leak into the next paragraph. The trailing space ends the control word.
   FOut.Append('\pard\plain').Append(Style).Append(' ');
@@ -215,12 +253,12 @@ end;
 
 procedure WriteLabelAndRule(W: TRtfWriter; const ChapterLabel: string; const Theme: TReaderTheme);
 begin
-  W.BeginParagraph(RtfChapterLabel);
+  W.BeginParagraph(RtfChapterLabel, 0, SpaceLabelAfter);
   W.Text(ChapterLabel);
   // RichEdit keeps paragraph borders but does not draw them, so the rule is
   // text. It is never empty: an empty last paragraph would be swallowed into
   // RichEdit's own final mark and the count would be one short.
-  W.BeginParagraph(RtfRule);
+  W.BeginParagraph(RtfRule, 0, SpaceRuleAfter);
   W.Text(RuleTextFor(Theme));
 end;
 
@@ -293,6 +331,29 @@ begin
     pkSourceCitation:  Result := RtfSourceCitation;
   else
     Result := RtfText;
+  end;
+end;
+
+function SpaceBeforeFor(Kind: TParagraphKind): Integer;
+begin
+  case Kind of
+    pkSubChapterTitle: Result := SpaceSubChapterBefore;
+    pkSectionHeading:  Result := SpaceSectionBefore;
+  else
+    Result := 0;
+  end;
+end;
+
+function SpaceAfterFor(Kind: TParagraphKind): Integer;
+begin
+  case Kind of
+    pkChapterTitle:    Result := SpaceTitleAfter;
+    pkSubChapterTitle: Result := SpaceSubChapterAfter;
+    pkEpigraph:        Result := SpaceEpigraphAfter;
+    pkSectionHeading:  Result := SpaceSectionAfter;
+    pkSourceCitation:  Result := SpaceSourceCitationAfter;
+  else
+    Result := SpaceTextAfter;
   end;
 end;
 
@@ -375,7 +436,7 @@ begin
     end
     else
       Title := Chapter.Title;
-    W.BeginParagraph(RtfChapterTitle);
+    W.BeginParagraph(RtfChapterTitle, 0, SpaceTitleAfter);
     if First = 1 then
     begin
       // The title is a paragraph of the chapter too: it can be quoted and matched.
@@ -401,7 +462,7 @@ begin
       P := Chapter.Paragraphs[I];
       if P.Kind = pkPageMarker then
         Continue;                               // never stored; ignore if it ever comes
-      W.BeginParagraph(StyleFor(P.Kind));
+      W.BeginParagraph(StyleFor(P.Kind), SpaceBeforeFor(P.Kind), SpaceAfterFor(P.Kind));
 
       R := Default(TParagraphRange);
       R.LogicalIndex := P.Ref.LogicalIndex;
@@ -466,13 +527,13 @@ begin
       HitIndex.AddOrSetValue(Highlight.Hits[I].VerseNumber, I);
 
     WriteHeader(W, Theme);
-    W.BeginParagraph(RtfChapterTitle);
+    W.BeginParagraph(RtfChapterTitle, 0, SpaceTitleAfter);
     W.Text(BookTitle);
     WriteLabelAndRule(W, ChapterLabel, Theme);
 
     for V in Chapter.Verses do
     begin
-      W.BeginParagraph(RtfVerse);
+      W.BeginParagraph(RtfVerse, 0, SpaceVerseAfter);
       R := Default(TParagraphRange);
       R.LogicalIndex := V.Ref.VerseNumber;
       Marker := IntToStr(V.Ref.VerseNumber) + ' ';
