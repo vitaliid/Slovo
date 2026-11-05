@@ -14,7 +14,7 @@
 
 ## Частина A. Що фіксує макет
 
-Одне вікно, три зони, без діалогів. Усі розміри — у CSS-пікселях макета при 96 DPI; у VCL — через `ScaleValue` (E-14).
+Одне вікно, три зони, без діалогів. Усі розміри — у CSS-пікселях макета при 96 DPI; у VCL — через `ScaleValue` (E-14). **Макет лежить у репозиторії:** `design/slovo-reading-v2.standalone.html` — подивитися, `design/slovo-reading-v2.dc.html` — точні значення CSS (`design/README.md`).
 
 ```mermaid
 graph TB

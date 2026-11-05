@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; padding: 0; background: #fcfcfc; }
+  * { box-sizing: border-box; }
+  a { color: #3c6ea8; text-decoration: none; }
+  a:hover { color: #2f5f95; text-decoration: underline; }
+  ::selection { background: rgba(120, 140, 170, 0.22); }
+  .slv-scroll::-webkit-scrollbar { width: 9px; }
+  .slv-scroll::-webkit-scrollbar-track { background: transparent; }
+  .slv-scroll::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.16); border-radius: 9px; }
+  .slv-scroll::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.28); }
+  .slv-grain { background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxODAiIGhlaWdodD0iMTgwIj48ZmlsdGVyIGlkPSJuIj48ZmVUdXJidWxlbmNlIHR5cGU9ImZyYWN0YWxOb2lzZSIgYmFzZUZyZXF1ZW5jeT0iMC44MiIgbnVtT2N0YXZlcz0iMyIgc3RpdGNoVGlsZXM9InN0aXRjaCIvPjxmZUNvbG9yTWF0cml4IHR5cGU9InNhdHVyYXRlIiB2YWx1ZXM9IjAiLz48L2ZpbHRlcj48cmVjdCB3aWR0aD0iMTgwIiBoZWlnaHQ9IjE4MCIgZmlsdGVyPSJ1cmwoI24pIiBvcGFjaXR5PSIwLjE2Ii8+PC9zdmc+"); }
+  @keyframes slvFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+</style>
+</helmet>
+
+<div style="min-height: 100vh; background: linear-gradient(180deg, #fdfdfd 0%, #fafafa 100%); font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #2f2f2f; display: flex; flex-direction: column;">
+
+  <sc-if value="{{ texture }}" hint-placeholder-val="{{ true }}">
+  <div class="slv-grain" style="position: fixed; inset: 0; pointer-events: none; opacity: 0.28; mix-blend-mode: multiply; z-index: 5;"></div>
+  </sc-if>
+
+  <sc-if value="{{ peekStrip }}" hint-placeholder-val="{{ false }}">
+    <div onMouseEnter="{{ peekOn }}" style="position: fixed; top: 0; left: 0; right: 0; height: 28px; z-index: 40;"></div>
+  </sc-if>
+
+  <header onMouseLeave="{{ headerLeave }}" style="position: relative; z-index: 10; display: flex; align-items: center; gap: 14px; padding: 12px 20px; border-bottom: 1px solid rgba(0, 0, 0, 0.09); transition: opacity 0.4s ease; opacity: {{ headerOpacity }}; pointer-events: {{ headerPointer }};">
+    <button onClick="{{ toggleLeft }}" title="Бібліотека" style="width: 32px; height: 32px; display: grid; place-items: center; border: none; background: transparent; border-radius: 7px; cursor: pointer; color: #6b6b6b;" style-hover="background: rgba(0, 0, 0, 0.05); color: #2f2f2f;">
+      <svg width="16" height="16" viewBox="0 0 16 16" style="fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round;"><path d="M2 4h12M2 8h12M2 12h12"></path></svg>
+    </button>
+    <div style="font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #767676;">Slovo</div>
+    <div style="flex: 1;"></div>
+    <div style="display: flex; align-items: center; gap: 2px;">
+      <button onClick="{{ smaller }}" title="Менший текст" style="width: 32px; height: 32px; border: none; background: transparent; border-radius: 7px; cursor: pointer; font-size: 13px; color: #6b6b6b;" style-hover="background: rgba(0, 0, 0, 0.05); color: #2f2f2f;">A−</button>
+      <span style="font-size: 11px; color: #767676; width: 42px; text-align: center;">{{ zoomLabel }}</span>
+      <button onClick="{{ bigger }}" title="Більший текст" style="width: 32px; height: 32px; border: none; background: transparent; border-radius: 7px; cursor: pointer; font-size: 15px; color: #6b6b6b;" style-hover="background: rgba(0, 0, 0, 0.05); color: #2f2f2f;">A+</button>
+    </div>
+    <button onClick="{{ toggleFocus }}" title="{{ focusHint }}" style="border: 1px solid rgba(0, 0, 0, 0.16); background: transparent; border-radius: 999px; padding: 6px 14px; font-size: 12px; letter-spacing: 0.04em; color: #6b6b6b; cursor: pointer;" style-hover="border-color: rgba(0, 0, 0, 0.3); color: #2f2f2f;">{{ focusLabel }}</button>
+    <button onClick="{{ toggleRight }}" title="Пошук ( / )" style="width: 32px; height: 32px; display: grid; place-items: center; border: none; background: transparent; border-radius: 7px; cursor: pointer; color: #6b6b6b;" style-hover="background: rgba(0, 0, 0, 0.05); color: #2f2f2f;">
+      <svg width="16" height="16" viewBox="0 0 16 16" style="fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round;"><circle cx="7" cy="7" r="4.5"></circle><path d="M10.5 10.5L14 14"></path></svg>
+    </button>
+  </header>
+
+  <div style="position: relative; z-index: 10; flex: 1; display: flex; align-items: stretch; min-height: 0; overflow: hidden;">
+
+    <sc-if value="{{ leftOpen }}" hint-placeholder-val="{{ true }}">
+      <aside class="slv-scroll" style="width: 272px; flex: 0 0 272px; border-right: 1px solid rgba(0, 0, 0, 0.09); padding: 26px 10px 40px 18px; overflow-y: auto; max-height: calc(100vh - 57px); animation: slvFade 0.4s ease;">
+        <div style="padding: 0 8px; margin-bottom: 18px; font-size: 10.5px; letter-spacing: 0.11em; text-transform: uppercase; color: #767676;">Бібліотека</div>
+
+        <sc-for list="{{ groups }}" as="g" hint-placeholder-count="2">
+          <div style="margin-bottom: 26px;">
+            <div style="display: flex; align-items: center; gap: 8px; padding: 0 8px; margin-bottom: 8px;">
+              <span style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #767676;">{{ g.label }}</span>
+              <span style="flex: 1; height: 1px; background: rgba(0, 0, 0, 0.07);"></span>
+            </div>
+
+            <sc-for list="{{ g.books }}" as="b" hint-placeholder-count="2">
+              <div style="margin-bottom: 2px;">
+                <div style="display: flex; align-items: center; gap: 4px; padding: 3px 8px 3px 2px; border-radius: 6px;" style-hover="background: rgba(0, 0, 0, 0.045);">
+                  <button onClick="{{ b.onToggle }}" title="{{ b.toggleHint }}" style="width: 24px; height: 24px; flex: 0 0 24px; display: grid; place-items: center; border: none; background: transparent; border-radius: 5px; padding: 0; font-size: 11px; line-height: 1; color: #8a8a8a; cursor: pointer;" style-hover="background: rgba(0, 0, 0, 0.06); color: #2f2f2f;">{{ b.caret }}</button>
+                  <button onClick="{{ b.onCheck }}" title="Шукати в цій книзі" style="width: 24px; height: 24px; flex: 0 0 24px; display: grid; place-items: center; border: none; background: transparent; padding: 0; cursor: pointer;">
+                    <span style="width: 14px; height: 14px; border: 1px solid rgba(0, 0, 0, 0.26); border-radius: 3px; display: grid; place-items: center; background: #ffffff;">
+                      <sc-if value="{{ b.checked }}" hint-placeholder-val="{{ true }}">
+                        <span style="width: 8px; height: 8px; border-radius: 1px; background: #3c6ea8;"></span>
+                      </sc-if>
+                    </span>
+                  </button>
+                  <span onClick="{{ b.onOpen }}" style="flex: 1; min-width: 0; padding: 3px 4px; font-size: 13.5px; line-height: 1.3; cursor: pointer; color: {{ b.labelColor }}; font-weight: {{ b.labelWeight }};" style-hover="color: #3c6ea8;">{{ b.label }}</span>
+                  <sc-if value="{{ b.dot }}" hint-placeholder-val="{{ false }}">
+                    <span style="width: 5px; height: 5px; border-radius: 50%; background: #3c6ea8; margin-right: 4px;"></span>
+                  </sc-if>
+                  <span style="font-size: 10.5px; color: #8a8a8a;">{{ b.count }}</span>
+                </div>
+
+                <sc-if value="{{ b.open }}" hint-placeholder-val="{{ true }}">
+                  <div style="margin: 2px 0 8px 26px; padding-left: 10px; border-left: 1px solid rgba(0, 0, 0, 0.08); display: flex; flex-direction: column; gap: 1px;">
+                    <sc-for list="{{ b.chapters }}" as="c" hint-placeholder-count="3">
+                      <div onClick="{{ c.onOpen }}" style="display: flex; align-items: baseline; gap: 9px; padding: 6px 9px; border-radius: 5px; cursor: pointer; font-size: 12.5px; line-height: 1.35; color: {{ c.color }};" style-hover="background: rgba(0, 0, 0, 0.045); color: #1f1f1f;">
+                        <span style="font-size: 10.5px; color: #8a8a8a; width: 12px; flex: 0 0 12px; text-align: right;">{{ c.num }}</span>
+                        <span style="flex: 1; min-width: 0;">{{ c.label }}</span>
+                        <sc-if value="{{ c.active }}" hint-placeholder-val="{{ false }}">
+                          <span style="width: 5px; height: 5px; border-radius: 50%; background: #3c6ea8; margin-bottom: 3px;"></span>
+                        </sc-if>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </sc-for>
+      </aside>
+    </sc-if>
+
+    <main class="slv-scroll" style="flex: 1; min-width: 0; overflow-y: auto; max-height: calc(100vh - 57px); padding: 0 clamp(16px, 4vw, 56px);">
+      <div style="max-width: 724px; margin: 0 auto; padding: 44px 0 140px clamp(48px, 6vw, 64px);">
+
+        <div style="display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 44px;">
+          <sc-for list="{{ crumbs }}" as="c" hint-placeholder-count="3">
+            <div style="display: flex; align-items: baseline; gap: 10px;">
+              <sc-if value="{{ c.sep }}" hint-placeholder-val="{{ false }}">
+                <span style="color: #c8c8c8;">/</span>
+              </sc-if>
+              <sc-if value="{{ c.link }}" hint-placeholder-val="{{ true }}">
+                <span onClick="{{ c.onClick }}" style="cursor: pointer; color: #767676; border-bottom: 1px solid transparent; padding-bottom: 1px;" style-hover="color: #3c6ea8; border-bottom-color: rgba(60, 110, 168, 0.45);">{{ c.label }}</span>
+              </sc-if>
+              <sc-if value="{{ c.current }}" hint-placeholder-val="{{ false }}">
+                <span style="color: #2f2f2f;">{{ c.label }}</span>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+
+        <sc-if value="{{ isShelf }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <h1 style="font-family: 'EB Garamond', Georgia, serif; font-weight: 400; font-size: clamp(30px, 4.6vw, 46px); line-height: 1.14; letter-spacing: -0.01em; margin: 0 0 8px; color: #242424;">{{ shelfTitle }}</h1>
+            <div style="font-family: 'EB Garamond', Georgia, serif; font-style: italic; font-size: 17px; color: #767676;">{{ shelfSub }}</div>
+            <div style="width: 58px; height: 1px; background: linear-gradient(90deg, rgba(0,0,0,0.28), rgba(0,0,0,0)); margin: 26px 0 34px;"></div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px;">
+              <sc-for list="{{ shelf }}" as="bk" hint-placeholder-count="4">
+                <div onClick="{{ bk.onOpen }}" style="display: flex; flex-direction: column; gap: 8px; min-height: 132px; padding: 20px 20px 16px; border: 1px solid rgba(0, 0, 0, 0.09); border-radius: 4px; background: #ffffff; cursor: pointer;" style-hover="border-color: rgba(60, 110, 168, 0.5);">
+                  <span style="font-family: 'EB Garamond', Georgia, serif; font-size: 22px; line-height: 1.25; color: #2f2f2f; text-wrap: pretty;">{{ bk.label }}</span>
+                  <span style="font-size: 12px; color: #767676;">{{ bk.meta }}</span>
+                  <sc-if value="{{ bk.reading }}" hint-placeholder-val="{{ false }}">
+                    <span style="margin-top: auto; padding-top: 10px; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #3c6ea8;">{{ bk.status }}</span>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isToc }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <h1 style="font-family: 'EB Garamond', Georgia, serif; font-weight: 400; font-size: clamp(30px, 4.6vw, 46px); line-height: 1.14; letter-spacing: -0.01em; margin: 0 0 8px; color: #242424;">{{ bookTitle }}</h1>
+            <div style="font-family: 'EB Garamond', Georgia, serif; font-style: italic; font-size: 17px; color: #767676;">Зміст</div>
+            <div style="width: 58px; height: 1px; background: linear-gradient(90deg, rgba(0,0,0,0.28), rgba(0,0,0,0)); margin: 26px 0 34px;"></div>
+            <div style="display: flex; flex-direction: column;">
+              <sc-for list="{{ toc }}" as="t" hint-placeholder-count="3">
+                <div onClick="{{ t.onOpen }}" style="position: relative; display: flex; align-items: baseline; gap: 16px; padding: 14px 10px 14px 0; border-bottom: 1px solid rgba(0, 0, 0, 0.07); cursor: pointer;" style-hover="background: rgba(0, 0, 0, 0.03);">
+                  <span style="position: absolute; left: -64px; width: 44px; text-align: right; font-size: 11px; color: #8a8a8a; top: 22px;">{{ t.num }}</span>
+                  <span style="flex: 1; min-width: 0; font-family: 'EB Garamond', Georgia, serif; font-size: 21px; line-height: 1.35; color: #2f2f2f;">{{ t.label }}</span>
+                  <sc-if value="{{ t.active }}" hint-placeholder-val="{{ false }}">
+                    <span style="font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: #3c6ea8;">читаю</span>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isRead }}" hint-placeholder-val="{{ true }}">
+        <div>
+          <h1 style="font-family: 'EB Garamond', Georgia, serif; font-weight: 400; font-size: clamp(30px, 4.6vw, 46px); line-height: 1.14; letter-spacing: -0.01em; margin: 0 0 8px; color: #242424;">{{ chapterTitle }}</h1>
+          <div style="font-family: 'EB Garamond', Georgia, serif; font-style: italic; font-size: 17px; color: #767676; margin-bottom: 10px;">{{ chapterSub }}</div>
+          <div style="width: 58px; height: 1px; background: linear-gradient(90deg, rgba(0,0,0,0.28), rgba(0,0,0,0)); margin: 26px 0 36px;"></div>
+
+          <sc-if value="{{ hasEpigraph }}" hint-placeholder-val="{{ false }}">
+            <div style="margin: 0 0 44px; padding: 0 40px;">
+              <div style="font-family: 'EB Garamond', Georgia, serif; font-style: italic; font-size: 19px; line-height: 1.6; color: #4a4a4a; text-wrap: pretty;">{{ epigraphText }}</div>
+              <div style="margin-top: 10px; text-align: right; font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: #767676;">{{ epigraphRef }}</div>
+            </div>
+          </sc-if>
+
+          <div style="font-family: 'EB Garamond', Georgia, serif; color: #2f2f2f;">
+            <div style="font-size: {{ fontPx }}px; line-height: 1.72;">
+
+              <sc-if value="{{ isProse }}" hint-placeholder-val="{{ true }}">
+                <div>
+                  <sc-for list="{{ paras }}" as="p" hint-placeholder-count="6">
+                    <div style="position: relative; margin-bottom: 24px; text-wrap: pretty;">
+                      <sc-if value="{{ p.hasMarker }}" hint-placeholder-val="{{ false }}">
+                        <span style="position: absolute; left: -64px; width: 44px; top: 0.5em; text-align: right; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 10.5px; line-height: 1; color: #8a8a8a; user-select: none;">{{ p.marker }}</span>
+                      </sc-if>
+                      <sc-if value="{{ p.plain }}" hint-placeholder-val="{{ true }}">
+                        <span>{{ p.text }}</span>
+                      </sc-if>
+                      <sc-if value="{{ p.hitCur }}" hint-placeholder-val="{{ false }}">
+                        <span>{{ p.pre }}</span><span style="background: rgba(60, 110, 168, 0.26); box-shadow: 0 0 0 2px rgba(60, 110, 168, 0.26); border-radius: 2px; color: #1a1a1a;">{{ p.hit }}</span><span>{{ p.post }}</span>
+                      </sc-if>
+                      <sc-if value="{{ p.hitDim }}" hint-placeholder-val="{{ false }}">
+                        <span>{{ p.pre }}</span><span style="background: rgba(120, 160, 210, 0.18); box-shadow: 0 0 0 2px rgba(120, 160, 210, 0.18); border-radius: 2px;">{{ p.hit }}</span><span>{{ p.post }}</span>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ isVerses }}" hint-placeholder-val="{{ false }}">
+                <div>
+                  <sc-for list="{{ paras }}" as="v" hint-placeholder-count="6">
+                    <div style="position: relative; margin-bottom: 12px; text-wrap: pretty;">
+                      <span style="position: absolute; left: -64px; width: 44px; top: 0.12em; text-align: right; font-size: 0.62em; line-height: 1.3; color: #767676; user-select: none;">{{ v.marker }}</span>
+                      <sc-if value="{{ v.plain }}" hint-placeholder-val="{{ true }}">
+                        <span>{{ v.text }}</span>
+                      </sc-if>
+                      <sc-if value="{{ v.hitCur }}" hint-placeholder-val="{{ false }}">
+                        <span>{{ v.pre }}</span><span style="background: rgba(60, 110, 168, 0.26); box-shadow: 0 0 0 2px rgba(60, 110, 168, 0.26); border-radius: 2px; color: #1a1a1a;">{{ v.hit }}</span><span>{{ v.post }}</span>
+                      </sc-if>
+                      <sc-if value="{{ v.hitDim }}" hint-placeholder-val="{{ false }}">
+                        <span>{{ v.pre }}</span><span style="background: rgba(120, 160, 210, 0.18); box-shadow: 0 0 0 2px rgba(120, 160, 210, 0.18); border-radius: 2px;">{{ v.hit }}</span><span>{{ v.post }}</span>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; gap: 16px; margin-top: 76px; padding-top: 26px; border-top: 1px solid rgba(0, 0, 0, 0.09);">
+            <div>
+              <sc-if value="{{ hasPrev }}" hint-placeholder-val="{{ true }}">
+                <button onClick="{{ prevCh }}" title="←" style="border: none; background: transparent; padding: 8px 0; cursor: pointer; text-align: left; font-family: 'EB Garamond', Georgia, serif; font-size: 17px; color: #6b6b6b;" style-hover="color: #3c6ea8;">← {{ prevLabel }}</button>
+              </sc-if>
+            </div>
+            <div>
+              <sc-if value="{{ hasNext }}" hint-placeholder-val="{{ true }}">
+                <button onClick="{{ nextCh }}" title="→" style="border: none; background: transparent; padding: 8px 0; cursor: pointer; text-align: right; font-family: 'EB Garamond', Georgia, serif; font-size: 17px; color: #6b6b6b;" style-hover="color: #3c6ea8;">{{ nextLabel }} →</button>
+              </sc-if>
+            </div>
+          </div>
+        </div>
+        </sc-if>
+      </div>
+    </main>
+
+    <sc-if value="{{ rightOpen }}" hint-placeholder-val="{{ true }}">
+      <aside class="slv-scroll" style="width: 320px; flex: 0 0 320px; border-left: 1px solid rgba(0, 0, 0, 0.09); overflow-y: auto; max-height: calc(100vh - 57px); padding: 26px 22px 60px; animation: slvFade 0.4s ease;">
+        <div style="font-size: 10.5px; letter-spacing: 0.11em; text-transform: uppercase; color: #767676; margin-bottom: 16px;">Пошук</div>
+
+        <div style="display: flex; align-items: center; gap: 10px; border-bottom: 1px solid rgba(0, 0, 0, 0.18); padding-bottom: 9px;">
+          <svg width="14" height="14" viewBox="0 0 16 16" style="flex: 0 0 14px; fill: none; stroke: #8a8a8a; stroke-width: 1.5; stroke-linecap: round;"><circle cx="7" cy="7" r="4.5"></circle><path d="M10.5 10.5L14 14"></path></svg>
+          <input ref="{{ inputRef }}" value="{{ query }}" onChange="{{ onQuery }}" placeholder="слово або фраза" style="flex: 1; min-width: 0; border: none; background: transparent; outline: none; font-family: 'EB Garamond', Georgia, serif; font-size: 19px; color: #242424;" />
+        </div>
+
+        <div style="margin-top: 20px;">
+          <div style="font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #767676; margin-bottom: 8px;">Де шукати</div>
+          <div style="display: inline-flex; padding: 3px; border: 1px solid rgba(0, 0, 0, 0.12); border-radius: 999px; background: #ffffff;">
+            <button onClick="{{ scopeToAll }}" style="padding: 5px 12px; border: none; border-radius: 999px; font-size: 12px; cursor: pointer; background: {{ scopeAllBg }}; color: {{ scopeAllColor }};">Уся бібліотека</button>
+            <button onClick="{{ scopeToChecked }}" style="padding: 5px 12px; border: none; border-radius: 999px; font-size: 12px; cursor: pointer; background: {{ scopeCheckedBg }}; color: {{ scopeCheckedColor }};">{{ scopeCheckedLabel }}</button>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 11px; margin: 20px 0 4px;">
+          <sc-for list="{{ options }}" as="o" hint-placeholder-count="2">
+            <div onClick="{{ o.onToggle }}" style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px; color: #4a4a4a;" style-hover="color: #1f1f1f;">
+              <span style="width: 14px; height: 14px; flex: 0 0 14px; border: 1px solid rgba(0, 0, 0, 0.26); border-radius: 3px; display: grid; place-items: center; background: #ffffff;">
+                <sc-if value="{{ o.on }}" hint-placeholder-val="{{ false }}">
+                  <span style="width: 8px; height: 8px; border-radius: 1px; background: #3c6ea8;"></span>
+                </sc-if>
+              </span>
+              <span>{{ o.label }}</span>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="display: flex; align-items: baseline; justify-content: space-between; margin: 28px 0 8px; padding-top: 16px; border-top: 1px solid rgba(0, 0, 0, 0.09);">
+          <span style="font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: #767676;">{{ hitsLabel }}</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <sc-for list="{{ results }}" as="r" hint-placeholder-count="5">
+            <div onClick="{{ r.onOpen }}" style="padding: 11px 13px; border-radius: 8px; cursor: pointer; border-left: 2px solid rgba(60, 110, 168, 0);" style-hover="background: rgba(0, 0, 0, 0.04); border-left-color: #3c6ea8;">
+              <div style="font-size: 10.5px; letter-spacing: 0.08em; color: #767676; margin-bottom: 5px;">{{ r.ref }}</div>
+              <div style="font-family: 'EB Garamond', Georgia, serif; font-size: 15.5px; line-height: 1.5; color: #3f3f3f;"><span>{{ r.pre }}</span><span style="color: #2f5f95; font-weight: 600;">{{ r.hit }}</span><span>{{ r.post }}</span></div>
+            </div>
+          </sc-for>
+        </div>
+      </aside>
+    </sc-if>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;pageMarkers&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;paperTexture&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;startInSilence&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+const BOOKS = {
+  gen: 'Буття', ex: 'Вихід', isa: 'Ісаї', mat: 'Матвій', ivn: 'Іван', rev: 'Об’явлення',
+  pp: 'Патріархи і пророки', vb: 'Велика боротьба', shx: 'Шлях до Христа', bv: 'Бажання віків', da: 'Дії апостолів', pk: 'Пророки і царі'
+};
+
+const BOOK = {
+  chapters: [
+    { num: 2, title: 'Створення', epigraph: { text: 'На початку Бог створив Небо та землю.', ref: 'Буття 1:1' }, paras: [
+      { p: 65, t: 'Земля вийшла з рук Творця надзвичайно гарною. Її поверхня була вкрита горами, пагорбами й долинами, порослими живими квітами й затіненими деревами всякого роду.' },
+      { t: 'Вітри й потоки не були зруйновані бурею, і всюди панувала цілковита злагода. Ангели дивилися на створене й раділи ділам Божим.' },
+      { p: 66, t: 'Людина була створена за подобою Божою — не тільки за характером, а й за образом. Вона мала носити на собі відблиск слави Того, хто її створив.' }
+    ] },
+    { num: 3, title: 'Спокуса і падіння', epigraph: { text: 'І сказав змій до жінки: Умерти — не вмрете! Бо знає Бог, що дня того, коли будете з нього ви їсти, ваші очі розкриються, і станете ви, немов Боги, і будете знати добро й зло.', ref: 'Буття 3:4–5' }, paras: [
+      { p: 71, t: 'Не задоволений своїм станом, сатана не спочивав, доки не поставив під сумнів саму доброту Того, чиї закони він відкинув. Він прийшов не як ворог, а як друг — і саме тому спокуса була такою небезпечною.' },
+      { t: 'І відповіла жінка змієві: Плодів із дерев у саду їсти нам можна; та про плід дерева, що посеред саду, сказав Бог: Не їжте його і не доторкайтеся до нього, щоб вам не померти.' },
+      { p: 72, t: 'Вона стояла й дивилася на дерево, і слова спокусника звучали в її серці, аж поки заборона Божа здалася їй суворою, а не милосердною. Так недовіра відкрила двері непослуху, і потрібна була інша жертва, щоб зачинити їх.' },
+      { t: 'І побачила жінка, що дерево добре для їжі, і що воно приємне для очей, і що воно вельми вабливе на те, щоб розумним зробитися, і взяла вона від плоду його, і їла, і дала також своєму чоловікові, і він їв з нею.' },
+      { p: 73, t: 'І відкрилися очі в обох, і пізнали, що вони наги; і зшили вони листя смоковного дерева, і зробили собі опоясання. Світло невинності відійшло, і сором залишився на його місці.' },
+      { t: 'Ніщо, крім Того, хто дав закон, не могло відновити зламане. І вже тут, у самому вироку, прозвучала перша обітниця Спасителя — і перша жертва, що вказувала на Нього.' }
+    ] },
+    { num: 4, title: 'План спасіння', epigraph: { text: 'Так бо Бог полюбив світ, що дав Сина Свого Однородженого, щоб кожен, хто вірує в Нього, не згинув, але мав життя вічне.', ref: 'Івана 3:16' }, paras: [
+      { p: 77, t: 'Падіння людини наповнило все небо смутком. Світ, що його створив Бог, був опоганений проклятям і повний істот, приречених на нещастя і смерть.' },
+      { t: 'Але любов Божа знайшла шлях, яким справедливість і милість зустрілися в одному вчинку — і цей шлях коштував неба його Сина.' }
+    ] }
+  ]
+};
+
+const BIBLE = {
+  chapters: [
+    { num: 2, title: 'Буття 2', sub: 'Сад Едем', verses: [
+      [8, 'І насадив Господь Бог рай у Едені на сході, і оселив там людину, що її Він створив.'],
+      [9, 'І зростив Господь Бог із землі кожне дерево, принадне на вигляд і добре на їжу, і дерево життя посеред раю, і дерево пізнання добра і зла.'],
+      [15, 'І взяв Господь Бог людину, і в еденському раї вмістив був її, щоб порала його та його доглядала.'],
+      [16, 'І наказав Господь Бог Адамові, кажучи: Із кожного дерева раю ти можеш їсти.']
+    ] },
+    { num: 3, title: 'Буття 3', sub: 'Спокуса', verses: [
+      [1, 'Але змій був хитріший над усю польову звірину, яку Господь Бог учинив. І сказав він до жінки: Чи Бог наказав: Не їжте з усякого дерева раю?'],
+      [2, 'І відповіла жінка змієві: Із плодів дерева раю ми можемо їсти.'],
+      [3, 'Але з плодів дерева, що в середині раю, Бог сказав: Не їжте із нього, і не дотикайтеся до нього, щоб вам не померти.'],
+      [4, 'І сказав змій до жінки: Умерти — не вмрете!'],
+      [5, 'Бо знає Бог, що дня того, коли будете з нього ви їсти, ваші очі розкриються, і станете ви, немов Боги, і будете знати добро й зло.'],
+      [6, 'І побачила жінка, що дерево добре на їжу, і принадне для очей, і пожадане дерево, щоб набути знання. І взяла вона з плоду його, і з’їла, та й дала теж чоловікові своєму, і він їв.']
+    ] }
+  ]
+};
+
+const RESULTS = {
+  bible: [
+    ['Буття 22:8', 'Авраам відповів: Бог Сам побачить собі ', 'жертву', ' для цілопалення, сину мій.'],
+    ['Вихід 12:27', 'І скажете: це ', 'жертва', ' Господня Пасха, що минув оселі синів Ізраїлевих у Єгипті.'],
+    ['Ісаї 53:7', 'Він був пригноблений, але не відчинив уст Своїх; як ягня на заколення ведений, і як ', 'жертва', ' німа перед стрижниками її.'],
+    ['Матвій 9:13', 'Ідіть і навчіться, що значить: ', 'жертви', ' не хочу, а милості, бо Я прийшов покликати не праведних, а грішників.']
+  ],
+  egw: [
+    ['Патріархи і пророки · Розділ 3', 'Так недовіра відкрила двері непослуху, і потрібна була інша ', 'жертва', ', щоб зачинити їх.'],
+    ['Патріархи і пророки · Розділ 3', '…прозвучала перша обітниця Спасителя — і перша ', 'жертва', ', що вказувала на Нього.'],
+    ['Шлях до Христа · Розділ 1', 'Христос став ', 'жертвою', ' за нас, щоб ми могли стати праведністю Божою в Ньому.']
+  ]
+};
+
+const stub = (num, title, ref, epi, p, t) => ({ num, title, epigraph: { text: epi, ref }, paras: [{ p, t }] });
+const STUBS = {
+  vb: { chapters: [stub(1, 'Доля Єрусалима', 'Луки 19:42', 'Коли б і ти хоч цього дня пізнало, що потрібне для миру тобі!', 17, 'З вершини гори Оливної Ісус дивився на Єрусалим. Місто лежало перед Ним у красі й спокої, і ніщо не віщувало руїни, що вже наближалася.')] },
+  shx: { chapters: [stub(1, 'Любов Божа до людини', 'Псалом 19:2', 'Небо звіщає про Божу славу, а про чин Його рук розказує небозвід.', 9, 'Природа і Одкровення однаково свідчать про любов Божу. Наш Небесний Отець є джерелом життя, мудрості й радості.')] },
+  bv: { chapters: [stub(1, 'З нами Бог', 'Матвій 1:23', 'І назвуть Йому ім’я Еммануїл, що в перекладі є: З нами Бог.', 19, 'Від днів вічности Христос був єдиний з Отцем. Він був образом Бога, виявом Його величі й слави.')] },
+  da: { chapters: [stub(1, 'Божий задум для Церкви', 'Ефесян 3:10', 'Щоб тепер через Церкву була оголошена многогранна мудрість Божа.', 9, 'Церква є знаряддям Бога для спасіння людей. Вона створена для служіння, і її завдання — нести Євангеліє світові.')] },
+  pk: { chapters: [stub(1, 'Соломон', '1 Царів 3:9', 'Дай же Своєму рабові серце розумне, щоб судити народ Твій.', 25, 'За царювання Давида та Соломона Ізраїль став могутнім серед народів і мав багато нагод справляти вплив на користь правди.')] },
+  mat: { chapters: [{ num: 1, title: 'Матвій 1', sub: 'Родовід', verses: [[1, 'Книга родоводу Ісуса Христа, Сина Давидового, Сина Авраамового.'], [21, 'І вона вродить Сина, ти ж даси Йому ймення Ісус, бо спасе Він людей Своїх від їхніх гріхів.']] }] },
+  ivn: { chapters: [{ num: 1, title: 'Іван 1', sub: 'Слово', verses: [[1, 'Споконвіку було Слово, а Слово в Бога було, і Бог було Слово.'], [4, 'І життя було в Нім, а життя було Світлом людей.'], [14, 'І Слово сталося тілом, і перебувало між нами, повне благодаті та правди.']] }] },
+  ex: { chapters: [{ num: 3, title: 'Вихід 3', sub: 'Кущ, що горить', verses: [[2, 'І з’явився йому Ангол Господній у полум’ї огняному з-посеред тернового куща.'], [14, 'І сказав Бог Мойсеєві: Я Той, що є.']] }] },
+  isa: { chapters: [{ num: 53, title: 'Ісаї 53', sub: 'Страждущий Слуга', verses: [[5, 'А Він був ранений за наші гріхи, за наші провини Він мучений був, кара на Ньому була за наш мир.']] }] },
+  rev: { chapters: [{ num: 21, title: 'Об’явлення 21', sub: 'Нове небо і нова земля', verses: [[4, 'І Бог кожну сльозу з очей їхніх зітре, і не буде вже смерти.']] }] }
+};
+const docFor = (src, bookId) => STUBS[bookId] || (src === 'book' ? BOOK : BIBLE);
+
+const esc = str => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+class Component extends DCLogic {
+  state = {
+    src: 'book', ch: 1, font: 20.5, left: true, right: true, focus: false, peek: false,
+    query: 'жертва', opts: [false, true], hitIdx: 0,
+    bookId: 'pp', expanded: { pp: true, gen: true }, checked: { pp: true }, view: 'read',
+    wantFocus: false, scope: 'checked'
+  };
+  inputRef = React.createRef();
+
+  componentDidMount() {
+    if (this.props.startInSilence) this.setState({ focus: true });
+    this._fit = () => {
+      const w = window.innerWidth;
+      this.setState({ narrowRight: w < 1180 && !this.state.rightForced, narrowLeft: w < 780 });
+    };
+    this._fit();
+    window.addEventListener('resize', this._fit);
+    this._key = e => {
+      const tag = (e.target && e.target.tagName) || '';
+      const typing = tag === 'INPUT' || tag === 'TEXTAREA';
+      if (e.key === 'Escape') {
+        if (this.state.focus) this.setState({ focus: false, peek: false });
+        else if (typing) e.target.blur();
+        return;
+      }
+      if (typing) return;
+      if (e.key === '/') { e.preventDefault(); this.setState({ right: true, narrowRight: false, rightForced: true, focus: false, wantFocus: true, left: window.innerWidth < 1180 ? false : this.state.left }); return; }
+      if (this.state.view !== 'read') return;
+      if (e.key === 'ArrowRight') this.go(1);
+      if (e.key === 'ArrowLeft') this.go(-1);
+    };
+    window.addEventListener('keydown', this._key);
+  }
+
+  componentDidUpdate() {
+    if (this.state.wantFocus && this.inputRef.current) {
+      this.inputRef.current.focus();
+      this.setState({ wantFocus: false });
+    }
+  }
+
+  componentWillUnmount() {
+    window.removeEventListener('resize', this._fit);
+    window.removeEventListener('keydown', this._key);
+  }
+
+  doc() { return docFor(this.state.src, this.state.bookId); }
+
+  go(d) {
+    const n = this.doc().chapters.length;
+    this.setState(st => ({ ch: Math.max(0, Math.min(n - 1, st.ch + d)), hitIdx: 0 }));
+  }
+
+  renderVals() {
+    const s = this.state;
+    const doc = this.doc();
+    const ch = doc.chapters[Math.min(s.ch, doc.chapters.length - 1)];
+    const q = s.query.trim();
+
+    let re = null;
+    if (q.length >= 3) {
+      const forms = s.opts[1] && !s.opts[0];
+      const stem = forms && q.length > 4 ? q.slice(0, -1) : q;
+      re = new RegExp(esc(stem) + (forms ? "[а-яіїєґ']*" : ''), 'i');
+    }
+
+    const showPages = this.props.pageMarkers ?? true;
+    const items = ch.verses
+      ? ch.verses.map(v => ({ marker: String(v[0]), t: v[1] }))
+      : ch.paras.map(p => ({ marker: p.p && showPages ? '[' + p.p + ']' : '', t: p.t }));
+    const matched = items.map(it => ({ it, m: re ? re.exec(it.t) : null }));
+    const hitCount = matched.filter(x => x.m).length;
+    const hitIdx = hitCount ? Math.min(s.hitIdx, hitCount - 1) : 0;
+    let k = 0;
+    const paras = matched.map(({ it, m }) => {
+      if (!m) return { marker: it.marker, hasMarker: !!it.marker, text: it.t, plain: true, hitCur: false, hitDim: false, pre: '', hit: '', post: '' };
+      const cur = k++ === hitIdx;
+      return { marker: it.marker, hasMarker: !!it.marker, text: '', plain: false, hitCur: cur, hitDim: !cur, pre: it.t.slice(0, m.index), hit: m[0], post: it.t.slice(m.index + m[0].length) };
+    });
+
+    const mkBook = (id, groupSrc, chapters, count) => {
+      const open = s.expanded[id] ?? false;
+      const cur = groupSrc === s.src && id === s.bookId;
+      return {
+        id, label: BOOKS[id], count, open,
+        caret: open ? '▾' : '▸',
+        toggleHint: open ? 'Згорнути' : 'Розгорнути',
+        checked: s.checked[id] ?? false,
+        labelColor: cur ? '#1f1f1f' : '#3d3d3d',
+        labelWeight: cur ? 600 : 500,
+        dot: cur && !open,
+        onToggle: () => this.setState(st => ({ expanded: Object.assign({}, st.expanded, { [id]: !(st.expanded[id] ?? false) }) })),
+        onCheck: () => this.setState(st => ({ checked: Object.assign({}, st.checked, { [id]: !(st.checked[id] ?? false) }) })),
+        onOpen: () => this.setState(st => ({ view: 'toc', src: groupSrc, bookId: id, ch: st.bookId === id ? st.ch : 0, hitIdx: 0, focus: false, expanded: Object.assign({}, st.expanded, { [id]: true }) })),
+        chapters: chapters.map((c, i) => ({
+          num: c.num, label: c.label,
+          active: cur && i === s.ch,
+          color: cur && i === s.ch ? '#1f1f1f' : '#5f5f5f',
+          onOpen: () => this.setState({ src: groupSrc, ch: i, bookId: id, focus: false, view: 'read', hitIdx: 0 })
+        }))
+      };
+    };
+    const chsOf = id => STUBS[id].chapters.map(c => ({ num: String(c.num), label: c.verses ? c.sub : c.title }));
+    const bookChs = BOOK.chapters.map(c => ({ num: String(c.num), label: c.title }));
+    const bibleChs = BIBLE.chapters.map(c => ({ num: String(c.num), label: c.sub }));
+
+    const groups = [
+      { label: 'Біблія', books: [
+        mkBook('gen', 'bible', bibleChs, '50 гл.'),
+        mkBook('mat', 'bible', chsOf('mat'), '28 гл.'),
+        mkBook('ivn', 'bible', chsOf('ivn'), '21 гл.')
+      ] },
+      { label: 'Праці Е. Ґ. Вайт', books: [
+        mkBook('pp', 'book', bookChs, '73 розд.'),
+        mkBook('vb', 'book', chsOf('vb'), '42 розд.'),
+        mkBook('shx', 'book', chsOf('shx'), '13 розд.')
+      ] }
+    ];
+
+    const checkedIds = Object.keys(s.checked).filter(id => s.checked[id]);
+    const scopeChecked = s.scope === 'checked';
+
+    const optLabels = ['Точна фраза', 'Враховувати форми слова'];
+    const options = optLabels.map((label, i) => ({
+      label, on: s.opts[i],
+      onToggle: () => this.setState(st => { const o = st.opts.slice(); o[i] = !o[i]; return { opts: o, hitIdx: 0 }; })
+    }));
+
+    const mkResult = (r, target) => ({ ref: r[0], pre: r[1], hit: r[2], post: r[3], onOpen: () => this.setState(Object.assign({ focus: false, view: 'read', hitIdx: 0 }, target)) });
+    const results = q ? [
+      mkResult(RESULTS.bible[0], { src: 'bible', ch: 1, bookId: 'gen' }),
+      mkResult(RESULTS.egw[0], { src: 'book', ch: 1, bookId: 'pp' }),
+      mkResult(RESULTS.bible[1], { src: 'bible', ch: 1, bookId: 'gen' }),
+      mkResult(RESULTS.bible[2], { src: 'bible', ch: 1, bookId: 'gen' }),
+      mkResult(RESULTS.egw[1], { src: 'book', ch: 1, bookId: 'pp' }),
+      mkResult(RESULTS.bible[3], { src: 'bible', ch: 1, bookId: 'gen' }),
+      mkResult(RESULTS.egw[2], { src: 'book', ch: 1, bookId: 'pp' })
+    ] : [];
+
+    const groupLabel = s.src === 'book' ? 'Праці Е. Ґ. Вайт' : 'Біблія · Огієнко';
+    const chLabel = c => c.verses ? c.title : 'Розділ ' + c.num + ' · ' + c.title;
+    const toShelf = () => this.setState({ view: 'shelf', focus: false });
+    const toToc = () => this.setState(st => ({ view: 'toc', focus: false, expanded: Object.assign({}, st.expanded, { [st.bookId]: true }) }));
+    const crumbs = s.view === 'shelf'
+      ? [{ label: groupLabel, sep: false, link: false, current: true }]
+      : s.view === 'toc'
+        ? [{ label: groupLabel, sep: false, link: true, current: false, onClick: toShelf }, { label: BOOKS[s.bookId], sep: true, link: false, current: true }]
+        : [{ label: groupLabel, sep: false, link: true, current: false, onClick: toShelf }, { label: BOOKS[s.bookId], sep: true, link: true, current: false, onClick: toToc }, { label: chLabel(ch), sep: true, link: false, current: true }];
+
+    const shelfBooks = s.src === 'book'
+      ? [['pp', '73 розділи'], ['vb', '42 розділи'], ['shx', '13 розділів'], ['bv', '87 розділів'], ['da', '58 розділів'], ['pk', '60 розділів']]
+      : [['gen', '50 глав'], ['ex', '40 глав'], ['isa', '66 глав'], ['mat', '28 глав'], ['ivn', '21 глава'], ['rev', '22 глави']];
+    const shelf = shelfBooks.map(([id, meta]) => ({
+      label: BOOKS[id], meta,
+      reading: id === s.bookId && s.view !== 'shelf' || id === s.bookId,
+      status: 'читаю · ' + (ch.verses ? ch.title : 'розділ ' + ch.num),
+      onOpen: () => this.setState({ view: 'toc', bookId: id, ch: 0, hitIdx: 0, focus: false })
+    }));
+
+    const prev = doc.chapters[s.ch - 1];
+    const next = doc.chapters[s.ch + 1];
+    const hidden = s.focus && !s.peek;
+
+    return {
+      groups, options, results, paras, crumbs, shelf,
+      scopeAllBg: scopeChecked ? 'transparent' : '#2f2f2f',
+      scopeAllColor: scopeChecked ? '#4a4a4a' : '#ffffff',
+      scopeCheckedBg: scopeChecked ? '#2f2f2f' : 'transparent',
+      scopeCheckedColor: scopeChecked ? '#ffffff' : '#4a4a4a',
+      scopeCheckedLabel: checkedIds.length ? 'Відмічені книги · ' + checkedIds.length : 'Відмічені книги',
+      scopeToAll: () => this.setState({ scope: 'all' }),
+      scopeToChecked: () => this.setState({ scope: 'checked', left: true, narrowLeft: false }),
+      texture: this.props.paperTexture ?? true,
+      isToc: s.view === 'toc', isShelf: s.view === 'shelf', isRead: s.view === 'read',
+      isProse: !ch.verses, isVerses: !!ch.verses,
+      shelfTitle: groupLabel,
+      shelfSub: s.src === 'book' ? '11 книг у бібліотеці' : '66 книг · Старий і Новий Заповіт',
+      bookTitle: BOOKS[s.bookId],
+      toc: doc.chapters.map((c, i) => ({
+        num: String(c.num), label: c.verses ? c.sub : c.title, active: i === s.ch,
+        onOpen: () => this.setState({ view: 'read', ch: i, focus: false, hitIdx: 0 })
+      })),
+      chapterTitle: ch.title,
+      chapterSub: ch.verses ? ch.sub : 'Розділ ' + ch.num,
+      hasEpigraph: !!ch.epigraph,
+      epigraphText: ch.epigraph ? ch.epigraph.text : '',
+      epigraphRef: ch.epigraph ? ch.epigraph.ref : '',
+      hasHits: hitCount > 0 && !s.focus,
+      hitsInChapterLabel: '«' + q + '» · ' + (hitIdx + 1) + ' з ' + hitCount + ' у розділі',
+      prevHit: () => this.setState({ hitIdx: (hitIdx - 1 + hitCount) % hitCount }),
+      nextHit: () => this.setState({ hitIdx: (hitIdx + 1) % hitCount }),
+      fontPx: s.font,
+      zoomLabel: Math.round((s.font / 20.5) * 100) + '%',
+      leftOpen: s.left && !s.focus && !s.narrowLeft,
+      rightOpen: s.right && !s.focus && !s.narrowRight,
+      headerOpacity: hidden ? 0 : 1,
+      headerPointer: hidden ? 'none' : 'auto',
+      peekStrip: hidden,
+      peekOn: () => this.setState({ peek: true }),
+      headerLeave: () => { if (this.state.focus) this.setState({ peek: false }); },
+      focusLabel: s.focus ? 'Вийти з тиші' : 'Тиша',
+      focusHint: s.focus ? 'Esc — вийти з тиші' : 'Сховати все, крім тексту (Esc повертає)',
+      query: s.query,
+      inputRef: this.inputRef,
+      hitsLabel: q ? '172 збіги' : 'введіть слово',
+      hasPrev: !!prev, hasNext: !!next,
+      prevLabel: prev ? chLabel(prev) : '',
+      nextLabel: next ? chLabel(next) : '',
+      prevCh: () => this.go(-1),
+      nextCh: () => this.go(1),
+      smaller: () => this.setState(st => ({ font: Math.max(15, st.font - 1.5) })),
+      bigger: () => this.setState(st => ({ font: Math.min(30, st.font + 1.5) })),
+      toggleLeft: () => this.setState(st => {
+        const shown = st.left && !st.focus && !st.narrowLeft;
+        return shown ? { left: false, focus: false } : { left: true, narrowLeft: false, focus: false, right: st.right && window.innerWidth >= 1180, rightForced: false };
+      }),
+      toggleRight: () => this.setState(st => {
+        const shown = st.right && !st.focus && !st.narrowRight;
+        return shown ? { right: false, focus: false, rightForced: false } : { right: true, narrowRight: false, rightForced: true, focus: false, wantFocus: true, left: window.innerWidth < 1180 ? false : st.left };
+      }),
+      toggleFocus: () => this.setState(st => ({ focus: !st.focus, peek: false })),
+      onQuery: e => this.setState({ query: e.target.value, hitIdx: 0 })
+    };
+  }
+}
+
+</script>
+</body>
+</html>
