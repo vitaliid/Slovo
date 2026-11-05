@@ -770,7 +770,8 @@ begin
   FLibraryHost.Parent := Content;
   FLibraryHost.Align := alClient;
   FLibraryHost.AlignWithMargins := True;
-  FLibraryHost.Margins.SetBounds(ScaleValue(10), 0, ScaleValue(4), ScaleValue(8));
+  // Mockup aside padding: 18 left, 10 right; the 40 at the bottom is the tree's BottomSpace.
+  FLibraryHost.Margins.SetBounds(ScaleValue(18), 0, ScaleValue(10), 0);
   FLibraryHost.BevelOuter := bvNone;
   FLibraryHost.ParentBackground := False;
   FLibraryHost.Color := ColorBackground;

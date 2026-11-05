@@ -209,6 +209,10 @@ procedure SetTracking(Canvas: TCanvas; Em: Single);
 procedure PaintLineGlyph(Canvas: TCanvas; Glyph: TFlatButtonGlyph; const R: TRect;
   Size: Integer; Color: TColor);
 
+// The caret ▸ / ▾ of the library (mockup: the glyph at 11 px): a filled
+// triangle Size px long, centred in R.
+procedure PaintTriangle(Canvas: TCanvas; const R: TRect; Down: Boolean; Size: Integer; Color: TColor);
+
 // A filled rounded rectangle with a 1 px border; Border = clNone - no border.
 procedure PaintRoundRect(Canvas: TCanvas; const R: TRect; Radius: Single; Fill, Border: TColor);
 // The mockup box: Size (14) frame, an Inner (8) accent square when checked.
@@ -302,6 +306,40 @@ begin
       Path.Free;
     end;
   finally
+    G.Free;
+  end;
+end;
+
+procedure PaintTriangle(Canvas: TCanvas; const R: TRect; Down: Boolean; Size: Integer; Color: TColor);
+var
+  G: TGPGraphics;
+  Brush: TGPSolidBrush;
+  Pts: array[0..2] of TGPPointF;
+  CX, CY, L, W: Single;
+begin
+  CX := (R.Left + R.Right) / 2;
+  CY := (R.Top + R.Bottom) / 2;
+  L := Size;
+  W := Size * 0.8;
+  if Down then
+  begin
+    Pts[0] := MakePoint(CX - L / 2, CY - W / 2);
+    Pts[1] := MakePoint(CX + L / 2, CY - W / 2);
+    Pts[2] := MakePoint(CX, CY + W / 2);
+  end
+  else
+  begin
+    Pts[0] := MakePoint(CX - W / 2, CY - L / 2);
+    Pts[1] := MakePoint(CX + W / 2, CY);
+    Pts[2] := MakePoint(CX - W / 2, CY + L / 2);
+  end;
+  G := TGPGraphics.Create(Canvas.Handle);
+  Brush := TGPSolidBrush.Create(ToArgb(Color));
+  try
+    G.SetSmoothingMode(SmoothingModeAntiAlias);
+    G.FillPolygon(Brush, PGPPointF(@Pts[0]), 3);
+  finally
+    Brush.Free;
     G.Free;
   end;
 end;
