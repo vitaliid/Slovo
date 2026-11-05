@@ -50,6 +50,7 @@ toc.reading = читаю
 
 read.chapter = Глава %d
 read.hitNav = «%s» · %d из %d в главе
+read.hitCount = «%s» · в главе: %d
 read.prevHit = Предыдущее совпадение
 read.nextHit = Следующее совпадение
 read.prevChapter = Предыдущая глава

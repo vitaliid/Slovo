@@ -33,6 +33,7 @@ type
     [Test] procedure Book_EveryParagraphResetsCharacterFormatting;
     [Test] procedure Book_GapsAreSpacersNotParagraphSpace;
     [Test] procedure Book_FocusAndOtherHitsAreBakedIn;
+    [Test] procedure Book_FocusIsOneWordNotTheParagraph;
     [Test] procedure Book_HitStartsPointAtTheFirstMatch;
     [Test] procedure Book_HitOutsideTheChapterIsMinusOne;
     [Test] procedure Book_BadHighlightsAreClampedAndOverlapsDropped;
@@ -430,6 +431,29 @@ begin
   Assert.AreEqual(Length(Back.Text), Doc.ExpectedChars, 'highlight groups add no characters');
 end;
 
+// E-08 by words: every highlighted word is a match; Focus = 2 is the SECOND
+// word of paragraph 4, and only it gets the "current" colour.
+procedure TChapterRtfBuilderTests.Book_FocusIsOneWordNotTheParagraph;
+var
+  Request: THighlightRequest;
+  Doc: TChapterRtf;
+  Back: TRtfReadBack;
+begin
+  Request.Hits := [Hit(3, [Hl(35, 6)]), Hit(4, [Hl(30, 6), Hl(39, 6)])];
+  Request.Focus := 2;
+  Doc := TChapterRtfBuilder.Build(SampleChapter, 'Розділ 3', Theme, Request);
+  Back := ReadBack(Doc.Rtf);
+
+  Assert.AreEqual('жертви', Back.UnderHighlight(5));
+  Assert.AreEqual('жертважертва', Back.UnderHighlight(6));
+  Assert.AreEqual(3, Integer(Length(Doc.MatchStarts)));
+  Assert.AreEqual('жертва', TextAt(Back, Doc.MatchStarts[0], 6));
+  Assert.AreEqual('жертва', TextAt(Back, Doc.MatchStarts[1], 6));
+  Assert.AreEqual('жертви', TextAt(Back, Doc.MatchStarts[2], 6));
+  Assert.AreEqual(0, Doc.HitFirstMatch[0]);
+  Assert.AreEqual(1, Doc.HitFirstMatch[1]);
+end;
+
 procedure TChapterRtfBuilderTests.Book_HitStartsPointAtTheFirstMatch;
 var
   Request: THighlightRequest;
@@ -437,7 +461,8 @@ var
   Back: TRtfReadBack;
 begin
   Request.Hits := [Hit(4, [Hl(39, 6), Hl(30, 6)]), Hit(1, [Hl(8, 1)])];   // unsorted on purpose
-  Request.Focus := 1;
+  // Focus is a word in DOCUMENT order (E-08): the title's "і" comes first.
+  Request.Focus := 0;
   Doc := TChapterRtfBuilder.Build(SampleChapter, 'Розділ 3', Theme, Request);
   Back := ReadBack(Doc.Rtf);
 
@@ -445,6 +470,8 @@ begin
   Assert.AreEqual('жертва', TextAt(Back, Doc.HitStarts[0], 6));
   Assert.AreEqual(8, Doc.HitStarts[1], 'a match in the title');
   Assert.AreEqual('і', Back.UnderHighlight(5));
+  Assert.AreEqual(0, Doc.HitFirstMatch[1], 'the title is word 0');
+  Assert.AreEqual(1, Doc.HitFirstMatch[0], 'Hits[0] starts at word 1');
 end;
 
 procedure TChapterRtfBuilderTests.Book_HitOutsideTheChapterIsMinusOne;

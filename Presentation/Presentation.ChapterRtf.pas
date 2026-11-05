@@ -39,8 +39,10 @@ type
     PageNumber, ParagraphOnPage: Integer;
   end;
 
-  // What to highlight (E-08): ready matches from FTS. Focus - index in Hits of the
-  // current paragraph (or verse); -1 - none.
+  // What to highlight (E-08): ready matches from FTS. Every highlighted word is
+  // a match of its own, numbered in document order (the title first); Focus -
+  // the number of the current match, -1 - none. The current word gets
+  // \highlight5, all the others \highlight6.
   THighlightRequest = record
     Hits: TArray<TParagraphHit>;
     Focus: Integer;
@@ -58,6 +60,8 @@ type
     ExpectedChars: Integer;      // visible characters: text, markers, 1 per \par
     Paragraphs: TArray<TParagraphRange>;
     HitStarts: TArray<Integer>;  // per Hits[i]: StartChar of its first match; -1 - not in this chapter
+    MatchStarts: TArray<Integer>;   // per match (word), document order: its position in RichEdit
+    HitFirstMatch: TArray<Integer>; // per Hits[i]: index in MatchStarts of its first match; -1 - none
     Where: string;               // 'PP:3' / 'ohienko-uk:GEN:3' - for the log line
   end;
 
@@ -298,27 +302,33 @@ begin
 end;
 
 // The paragraph text with the matches baked in as {\highlightN ...} groups.
-procedure WriteHighlightedText(W: TRtfWriter; const Text: string;
-  const Highlights: TArray<TSearchHighlight>; IsFocus: Boolean);
+// Every match is numbered in document order; Starts gets its position.
+// Result - the number of the paragraph's first match; -1 when cleaning left none.
+function WriteHighlightedText(W: TRtfWriter; const Text: string;
+  const Highlights: TArray<TSearchHighlight>; Focus: Integer; Starts: TList<Integer>): Integer;
 var
   H: TSearchHighlight;
   Pos: Integer;
   Group: string;
 begin
-  if IsFocus then
-    Group := RtfHitCurrent
-  else
-    Group := RtfHitOther;
+  Result := Starts.Count;
   Pos := 0;
   for H in CleanHighlights(Highlights, Length(Text)) do
   begin
     W.Text(Copy(Text, Pos + 1, H.StartOffset - Pos));
+    if Starts.Count = Focus then
+      Group := RtfHitCurrent
+    else
+      Group := RtfHitOther;
+    Starts.Add(W.Chars);
     W.Raw('{' + Group + ' ');
     W.Text(Copy(Text, H.StartOffset + 1, H.Len));
     W.Raw('}');
     Pos := H.StartOffset + H.Len;
   end;
   W.Text(Copy(Text, Pos + 1, MaxInt));
+  if Starts.Count = Result then
+    Result := -1;
 end;
 
 function StyleFor(Kind: TParagraphKind): string;
@@ -407,6 +417,7 @@ var
   W: TRtfWriter;
   HitIndex: TDictionary<Integer, Integer>;     // LogicalIndex -> index in Highlight.Hits
   Ranges: TList<TParagraphRange>;
+  Starts: TList<Integer>;
   P: TParagraphContent;
   R: TParagraphRange;
   Marker, Title: string;
@@ -414,12 +425,17 @@ var
 begin
   Result.Where := Format('%s:%d', [string(Chapter.Ref.ModuleId), Chapter.Ref.ChapterOrder]);
   SetLength(Result.HitStarts, Length(Highlight.Hits));
+  SetLength(Result.HitFirstMatch, Length(Highlight.Hits));
   for I := 0 to High(Result.HitStarts) do
+  begin
     Result.HitStarts[I] := -1;
+    Result.HitFirstMatch[I] := -1;
+  end;
 
   W := TRtfWriter.Create;
   HitIndex := TDictionary<Integer, Integer>.Create;
   Ranges := TList<TParagraphRange>.Create;
+  Starts := TList<Integer>.Create;
   try
     for I := 0 to High(Highlight.Hits) do
       HitIndex.AddOrSetValue(Highlight.Hits[I].LogicalIndex, I);
@@ -446,7 +462,8 @@ begin
       R.Len := Length(Title);
       if HitIndex.TryGetValue(R.LogicalIndex, HitAt) then
       begin
-        WriteHighlightedText(W, Title, Highlight.Hits[HitAt].Highlights, HitAt = Highlight.Focus);
+        Result.HitFirstMatch[HitAt] :=
+          WriteHighlightedText(W, Title, Highlight.Hits[HitAt].Highlights, Highlight.Focus, Starts);
         Result.HitStarts[HitAt] := FirstMatchStart(Highlight.Hits[HitAt].Highlights, R.StartChar, R.Len);
       end
       else
@@ -482,7 +499,8 @@ begin
 
       if HitIndex.TryGetValue(R.LogicalIndex, HitAt) then
       begin
-        WriteHighlightedText(W, P.Text, Highlight.Hits[HitAt].Highlights, HitAt = Highlight.Focus);
+        Result.HitFirstMatch[HitAt] :=
+          WriteHighlightedText(W, P.Text, Highlight.Hits[HitAt].Highlights, Highlight.Focus, Starts);
         Result.HitStarts[HitAt] := FirstMatchStart(Highlight.Hits[HitAt].Highlights, R.StartChar, R.Len);
       end
       else
@@ -494,7 +512,9 @@ begin
     Result.Rtf := W.ToRtf;
     Result.ExpectedChars := W.Chars;
     Result.Paragraphs := Ranges.ToArray;
+    Result.MatchStarts := Starts.ToArray;
   finally
+    Starts.Free;
     Ranges.Free;
     HitIndex.Free;
     W.Free;
@@ -508,6 +528,7 @@ var
   W: TRtfWriter;
   HitIndex: TDictionary<Integer, Integer>;     // VerseNumber -> index in Highlight.Hits
   Ranges: TList<TParagraphRange>;
+  Starts: TList<Integer>;
   V: TVerseContent;
   R: TParagraphRange;
   Marker: string;
@@ -516,12 +537,17 @@ begin
   Result.Where := Format('%s:%s:%d', [string(Chapter.Ref.Book.ModuleId),
     string(Chapter.Ref.Book.BookCode), Chapter.Ref.ChapterNumber]);
   SetLength(Result.HitStarts, Length(Highlight.Hits));
+  SetLength(Result.HitFirstMatch, Length(Highlight.Hits));
   for I := 0 to High(Result.HitStarts) do
+  begin
     Result.HitStarts[I] := -1;
+    Result.HitFirstMatch[I] := -1;
+  end;
 
   W := TRtfWriter.Create;
   HitIndex := TDictionary<Integer, Integer>.Create;
   Ranges := TList<TParagraphRange>.Create;
+  Starts := TList<Integer>.Create;
   try
     for I := 0 to High(Highlight.Hits) do
       HitIndex.AddOrSetValue(Highlight.Hits[I].VerseNumber, I);
@@ -546,7 +572,8 @@ begin
 
       if HitIndex.TryGetValue(R.LogicalIndex, HitAt) then
       begin
-        WriteHighlightedText(W, V.Text, Highlight.Hits[HitAt].Highlights, HitAt = Highlight.Focus);
+        Result.HitFirstMatch[HitAt] :=
+          WriteHighlightedText(W, V.Text, Highlight.Hits[HitAt].Highlights, Highlight.Focus, Starts);
         Result.HitStarts[HitAt] := FirstMatchStart(Highlight.Hits[HitAt].Highlights, R.StartChar, R.Len);
       end
       else
@@ -558,7 +585,9 @@ begin
     Result.Rtf := W.ToRtf;
     Result.ExpectedChars := W.Chars;
     Result.Paragraphs := Ranges.ToArray;
+    Result.MatchStarts := Starts.ToArray;
   finally
+    Starts.Free;
     Ranges.Free;
     HitIndex.Free;
     W.Free;

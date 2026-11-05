@@ -50,6 +50,7 @@ toc.reading = reading
 
 read.chapter = Chapter %d
 read.hitNav = "%s" · %d of %d in the chapter
+read.hitCount = "%s" · in the chapter: %d
 read.prevHit = Previous match
 read.nextHit = Next match
 read.prevChapter = Previous chapter

@@ -50,6 +50,7 @@ toc.reading = читаю
 
 read.chapter = Розділ %d
 read.hitNav = «%s» · %d з %d у розділі
+read.hitCount = «%s» · у розділі: %d
 read.prevHit = Попередній збіг
 read.nextHit = Наступний збіг
 read.prevChapter = Попередній розділ

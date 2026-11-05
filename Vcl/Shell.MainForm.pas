@@ -162,6 +162,23 @@ type
     procedure miSearchClick(Sender: TObject);
     procedure FormKeyPress(Sender: TObject; var Key: Char);
     procedure MoveHit(Delta: Integer);
+
+  private
+    // Navigator of the matches in the open chapter (E-08, A.6), centred between
+    // the chapter buttons; visible only when the chapter has matches.
+    FHitNav: TPanel;
+    FHitBox: TPanel;
+    FHitPrev: TButton;
+    FHitLabel: TLabel;
+    FHitNext: TButton;
+    FHitQuery: string;                   // the query the shown highlights came from
+    FFocusMatch: Integer;                // the current word in the open chapter; -1 = none
+    FMatchCount: Integer;                // highlighted words in the open chapter
+    procedure CreateHitNav;
+    procedure UpdateHitNav;
+    procedure HitNavResize(Sender: TObject);
+    procedure HitPrevClick(Sender: TObject);
+    procedure HitNextClick(Sender: TObject);
     function FocusReaderOrList: Boolean;
 
     procedure ApplyLocalization;
@@ -170,8 +187,12 @@ type
     procedure FillShelf;
     procedure FillToc;
     procedure GoUp;
-    procedure RenderChapter(const Args: TChapterLoadedArgs);
-    procedure RenderBibleChapter(const Args: TBibleChapterLoadedArgs);
+    // FocusMatch - the current word (E-08, by words); -1 = take the first word
+    // of the paragraph Args.Focus names (a search result), if any.
+    procedure RenderChapter(const Args: TChapterLoadedArgs; FocusMatch: Integer = -1);
+    procedure RenderBibleChapter(const Args: TBibleChapterLoadedArgs; FocusMatch: Integer = -1);
+    procedure ShowDocument(var Doc: TChapterRtf; ParagraphFocus, FocusMatch: Integer;
+      const Rebuild: TFunc<Integer, TChapterRtf>);
     procedure LoadDocument(const Doc: TChapterRtf; Focus: Integer);
     procedure UpdateCrumbs;
     procedure SetZoomStep(Value: Integer);
@@ -253,6 +274,7 @@ begin
 
   CreateLeftPanel;
   CreateRightPanel;
+  CreateHitNav;
   OnKeyPress := FormKeyPress;
 
   FChapterList := TChapterList.Create(Self, pnlColumn,
@@ -435,8 +457,20 @@ begin
       UpdateStatus;
     end;
   FOnViewChanged := procedure(View: TReaderView) begin ShowView(View); end;
-  FOnChapterLoaded := procedure(Args: TChapterLoadedArgs) begin RenderChapter(Args); end;
-  FOnBibleChapterLoaded := procedure(Args: TBibleChapterLoadedArgs) begin RenderBibleChapter(Args); end;
+  // The hits of a loaded chapter come from the active query (E-08); a later
+  // search does not reload the open chapter, so the navigator keeps the text of
+  // the query its highlights came from - F3 and a language change re-render
+  // without touching it.
+  FOnChapterLoaded := procedure(Args: TChapterLoadedArgs)
+    begin
+      FHitQuery := FViewModel.ActiveQuery.Text;
+      RenderChapter(Args);
+    end;
+  FOnBibleChapterLoaded := procedure(Args: TBibleChapterLoadedArgs)
+    begin
+      FHitQuery := FViewModel.ActiveQuery.Text;
+      RenderBibleChapter(Args);
+    end;
   FOnSearchCompleted := procedure(Reply: TSearchReply) begin ShowSearchReply(Reply); end;
   FOnErrorOccurred := procedure(Error: TResultError) begin ShowError(Error); end;
 
@@ -547,6 +581,9 @@ begin
     FResultList.Invalidate;
   actPrevChapter.Caption := '‹  ' + L('read.prevChapter');
   actNextChapter.Caption := L('read.nextChapter') + '  ›';
+  FHitPrev.Hint := L('read.prevHit') + ' (Shift+F3)';
+  FHitNext.Hint := L('read.nextHit') + ' (F3)';
+  UpdateHitNav;
   UpdateStatus;
 end;
 
@@ -884,28 +921,62 @@ end;
 
 { reading (C.4) }
 
-procedure TMainForm.RenderChapter(const Args: TChapterLoadedArgs);
+procedure TMainForm.RenderChapter(const Args: TChapterLoadedArgs; FocusMatch: Integer);
 var
-  Request: THighlightRequest;
+  Doc: TChapterRtf;
+  Build: TFunc<Integer, TChapterRtf>;
 begin
   FShown := scBook;
   FLastChapter := Args;
-  Request.Hits := Args.Hits;
-  Request.Focus := Args.Focus;
-  LoadDocument(TChapterRtfBuilder.Build(Args.Content,
-    L('read.chapter', [Args.Content.Ref.ChapterOrder]), FTheme, Request), Args.Focus);
+  Build := function(Focus: Integer): TChapterRtf
+    var
+      Request: THighlightRequest;
+    begin
+      Request.Hits := FLastChapter.Hits;
+      Request.Focus := Focus;
+      Result := TChapterRtfBuilder.Build(FLastChapter.Content,
+        L('read.chapter', [FLastChapter.Content.Ref.ChapterOrder]), FTheme, Request);
+    end;
+  Doc := Build(FocusMatch);
+  ShowDocument(Doc, Args.Focus, FocusMatch, Build);
 end;
 
-procedure TMainForm.RenderBibleChapter(const Args: TBibleChapterLoadedArgs);
+procedure TMainForm.RenderBibleChapter(const Args: TBibleChapterLoadedArgs; FocusMatch: Integer);
 var
-  Request: TVerseHighlightRequest;
+  Doc: TChapterRtf;
+  Build: TFunc<Integer, TChapterRtf>;
 begin
   FShown := scBible;
   FLastBibleChapter := Args;
-  Request.Hits := Args.Hits;
-  Request.Focus := Args.Focus;
-  LoadDocument(TChapterRtfBuilder.Build(Args.Content, Args.BookTitle,
-    L('read.chapter', [Args.Content.Ref.ChapterNumber]), FTheme, Request), Args.Focus);
+  Build := function(Focus: Integer): TChapterRtf
+    var
+      Request: TVerseHighlightRequest;
+    begin
+      Request.Hits := FLastBibleChapter.Hits;
+      Request.Focus := Focus;
+      Result := TChapterRtfBuilder.Build(FLastBibleChapter.Content, FLastBibleChapter.BookTitle,
+        L('read.chapter', [FLastBibleChapter.Content.Ref.ChapterNumber]), FTheme, Request);
+    end;
+  Doc := Build(FocusMatch);
+  ShowDocument(Doc, Args.Focus, FocusMatch, Build);
+end;
+
+// The ViewModel names the current PARAGRAPH (the clicked result); the
+// navigator works by words, so the paragraph becomes its first word - known
+// only after a build, hence a second one with that word as the focus.
+procedure TMainForm.ShowDocument(var Doc: TChapterRtf; ParagraphFocus, FocusMatch: Integer;
+  const Rebuild: TFunc<Integer, TChapterRtf>);
+begin
+  if (FocusMatch < 0) and (ParagraphFocus >= 0) and (ParagraphFocus <= High(Doc.HitFirstMatch))
+    and (Doc.HitFirstMatch[ParagraphFocus] >= 0) then
+  begin
+    FocusMatch := Doc.HitFirstMatch[ParagraphFocus];
+    Doc := Rebuild(FocusMatch);
+  end;
+  FFocusMatch := FocusMatch;
+  FMatchCount := Length(Doc.MatchStarts);
+  LoadDocument(Doc, FocusMatch);
+  UpdateHitNav;
 end;
 
 { the library tree (A.3) }
@@ -973,8 +1044,8 @@ begin
       'Chapter %s rendered incompletely: expected %d chars, got %d, stream error %d',
       [Doc.Where, Doc.ExpectedChars, Actual, StreamError]));
 
-  if (Focus >= 0) and (Focus <= High(Doc.HitStarts)) and (Doc.HitStarts[Focus] >= 0) then
-    ScrollToChar(redReader, Doc.HitStarts[Focus])
+  if (Focus >= 0) and (Focus <= High(Doc.MatchStarts)) then
+    ScrollToChar(redReader, Doc.MatchStarts[Focus])
   else
     ScrollToChar(redReader, 0);
   UpdateCrumbs;
@@ -1227,7 +1298,7 @@ begin
     Result := False;
 end;
 
-// F3 / Shift+F3 (A.6): the next / previous paragraph with a match; the RTF is
+// F3 / Shift+F3 (A.6): the next / previous highlighted word; the RTF is
 // rebuilt with the new Focus (E-01) and scrolled to it.
 procedure TMainForm.MoveHit(Delta: Integer);
 
@@ -1244,28 +1315,104 @@ procedure TMainForm.MoveHit(Delta: Integer);
       Result := (Focus + Delta + Count) mod Count;
   end;
 
-var
-  Args: TChapterLoadedArgs;
-  BibleArgs: TBibleChapterLoadedArgs;
 begin
-  if FViewModel.View <> rvRead then
+  if (FViewModel.View <> rvRead) or (FMatchCount = 0) then
     Exit;
   case FShown of
-    scBook:
-      if Length(FLastChapter.Hits) > 0 then
-      begin
-        Args := FLastChapter;
-        Args.Focus := Step(Args.Focus, Length(Args.Hits));
-        RenderChapter(Args);
-      end;
-    scBible:
-      if Length(FLastBibleChapter.Hits) > 0 then
-      begin
-        BibleArgs := FLastBibleChapter;
-        BibleArgs.Focus := Step(BibleArgs.Focus, Length(BibleArgs.Hits));
-        RenderBibleChapter(BibleArgs);
-      end;
+    scBook:  RenderChapter(FLastChapter, Step(FFocusMatch, FMatchCount));
+    scBible: RenderBibleChapter(FLastBibleChapter, Step(FFocusMatch, FMatchCount));
   end;
+end;
+
+{ the match navigator (E-08) }
+
+procedure TMainForm.CreateHitNav;
+
+  function NewButton(const Caption: string; const OnClick: TNotifyEvent): TButton;
+  begin
+    Result := TButton.Create(Self);
+    Result.Parent := FHitBox;
+    Result.Align := alLeft;
+    Result.Caption := Caption;
+    Result.Width := ScaleValue(28);
+    Result.TabStop := False;
+    Result.ShowHint := True;
+    Result.OnClick := OnClick;
+  end;
+
+begin
+  // Between the alLeft / alRight chapter buttons: the client area of the bar.
+  FHitNav := TPanel.Create(Self);
+  FHitNav.Parent := pnlChapterNav;
+  FHitNav.Align := alClient;
+  FHitNav.BevelOuter := bvNone;
+  FHitNav.ParentBackground := False;
+  FHitNav.Color := ColorBackground;
+  FHitNav.OnResize := HitNavResize;
+
+  // A box sized to its content, centred by HitNavResize.
+  FHitBox := TPanel.Create(Self);
+  FHitBox.Parent := FHitNav;
+  FHitBox.BevelOuter := bvNone;
+  FHitBox.ParentBackground := False;
+  FHitBox.Color := ColorBackground;
+  FHitBox.Height := ScaleValue(28);
+
+  FHitPrev := NewButton('‹', HitPrevClick);
+  FHitLabel := TLabel.Create(Self);
+  FHitLabel.Parent := FHitBox;
+  FHitLabel.Left := 1000;                // alLeft keeps the order of Left
+  FHitLabel.Align := alLeft;
+  FHitLabel.AlignWithMargins := True;
+  FHitLabel.Margins.SetBounds(ScaleValue(10), 0, ScaleValue(10), 0);
+  FHitLabel.Layout := tlCenter;
+  FHitLabel.ShowAccelChar := False;
+  FHitLabel.Font.Color := ColorMuted;
+  FHitNext := NewButton('›', HitNextClick);
+  FHitNext.Left := 2000;
+  FHitNav.Visible := False;
+end;
+
+procedure TMainForm.HitNavResize(Sender: TObject);
+var
+  W: Integer;
+begin
+  W := FHitPrev.Width + FHitLabel.Width + FHitLabel.Margins.Left + FHitLabel.Margins.Right + FHitNext.Width;
+  FHitBox.SetBounds(Max((FHitNav.ClientWidth - W) div 2, 0),
+    (FHitNav.ClientHeight - FHitBox.Height) div 2, W, FHitBox.Height);
+end;
+
+// "«дети» · 2 з 3 у розділі"; before a current match is chosen (the chapter
+// came from the tree with an active search) - "«дети» · у розділі: 3".
+procedure TMainForm.UpdateHitNav;
+var
+  Count, Focus: Integer;
+begin
+  Count := 0;
+  Focus := -1;
+  if (FViewModel <> nil) and (FShown <> scNone) then
+  begin
+    Count := FMatchCount;
+    Focus := FFocusMatch;
+  end;
+  FHitNav.Visible := Count > 0;
+  if Count = 0 then
+    Exit;
+  if Focus >= 0 then
+    FHitLabel.Caption := L('read.hitNav', [FHitQuery, Focus + 1, Count])
+  else
+    FHitLabel.Caption := L('read.hitCount', [FHitQuery, Count]);
+  HitNavResize(nil);
+end;
+
+procedure TMainForm.HitPrevClick(Sender: TObject);
+begin
+  MoveHit(-1);
+end;
+
+procedure TMainForm.HitNextClick(Sender: TObject);
+begin
+  MoveHit(1);
 end;
 
 { errors }
@@ -1353,8 +1500,8 @@ begin
     rvToc:   FillToc;
     rvRead:
       case FShown of
-        scBook:  RenderChapter(FLastChapter);
-        scBible: RenderBibleChapter(FLastBibleChapter);
+        scBook:  RenderChapter(FLastChapter, FFocusMatch);
+        scBible: RenderBibleChapter(FLastBibleChapter, FFocusMatch);
       end;
   end;
   UpdateCrumbs;
