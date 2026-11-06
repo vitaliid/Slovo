@@ -39,7 +39,7 @@ const
   HeaderHeight     = 57;
   LeftPanelWidth   = 272;
   RightPanelWidth  = 320;
-  TextColumnMax    = 724;
+  TextColumnMax    = 864;     // mockup 724; wider by Vitalii (2026-11-06): text ~800 px
   // The text column of the mockup "Читання v2" (A.5): <main> has side padding
   // clamp(16px, 4vw, 56px); inside it the column is max-width 724px (border-box:
   // the left padding below is inside the 724, the text is 724 - padding), centred,

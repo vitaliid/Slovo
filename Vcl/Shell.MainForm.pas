@@ -158,6 +158,7 @@ type
     procedure SearchEditWndProc(var Message: TMessage);
     procedure SearchIconPaint(Sender: TObject);
     procedure SearchEditChange(Sender: TObject);
+    procedure ClearSearchResults;
     procedure CreateRightPanel;
     procedure OpenSearch;
     procedure RunSearch;
@@ -313,6 +314,8 @@ uses
 {$R *.dfm}
 
 const
+  HitRowHeight = 28;                     // the match navigator's row under the crumbs
+  HitRowGap = 8;                         // crumbs 8 + row 28 + 8 = CrumbsBottom 44
   MinZoomStep = -4;                      // E-11: 15..30 px
   MaxZoomStep = 6;
 
@@ -1195,6 +1198,8 @@ begin
   FLeftPad := Margin;
   pnlCrumbs.Margins.Left := Margin;
   pnlChapterNav.Margins.SetBounds(Margin, 0, 0, 0);
+  if FHitNav <> nil then                 // OnResize may come before CreateHitNav
+    FHitNav.Margins.SetBounds(Margin, 0, 0, ScaleValue(HitRowGap));
   if FChapterList <> nil then
     FChapterList.SetLeftPad(Margin);
   pnlColumn.Width := Max(ColumnWidth - LeftPad, 0) + Margin;
@@ -1776,7 +1781,7 @@ procedure TMainForm.RunSearch;
 begin
   if Trim(StringReplace(FSearchEdit.Text, #$00A0, ' ', [rfReplaceAll])) = '' then
   begin
-    ShowSearchStatus('search.enterWord');
+    ClearSearchResults;                  // no query - nothing to show, no "enter a word"
     Exit;
   end;
   if not FScope.WholeLibrary and (FCheckedCount = 0) then
@@ -1861,6 +1866,16 @@ end;
 procedure TMainForm.SearchEditChange(Sender: TObject);
 begin
   FSearchEdit.Invalidate;                // the placeholder comes and goes with the text
+  // An emptied field clears the results and the status (Vitalii, 2026-11-06).
+  if FSearchEdit.GetTextLen = 0 then
+    ClearSearchResults;
+end;
+
+procedure TMainForm.ClearSearchResults;
+begin
+  FHasReply := False;
+  FResultList.Clear;
+  ShowSearchStatus('');
 end;
 
 procedure TMainForm.SearchEditKeyPress(Sender: TObject; var Key: Char);
@@ -1927,17 +1942,21 @@ procedure TMainForm.CreateHitNav;
     Result.Align := alLeft;
     Result.Caption := Caption;
     Result.FontPx := 17;
-    Result.Width := ScaleValue(28);
+    Result.Width := ScaleValue(20);
     Result.TabStop := False;
     Result.ShowHint := True;
     Result.OnClick := OnClick;
   end;
 
 begin
-  // Between the alLeft / alRight chapter links: the client area of the bar.
+  // A row of its own under the crumbs, the box at the right, fixed (Vitalii,
+  // 2026-11-06: at the bottom it was not clear what it is). With it the gap
+  // crumbs - text stays 44 px: crumbs 8 + row 28 + 8.
   FHitNav := TPanel.Create(Self);
-  FHitNav.Parent := pnlChapterNav;
-  FHitNav.Align := alClient;
+  FHitNav.Parent := pnlColumn;
+  FHitNav.Align := alTop;
+  FHitNav.AlignWithMargins := True;
+  FHitNav.Height := ScaleValue(HitRowHeight);
   FHitNav.BevelOuter := bvNone;
   FHitNav.ParentBackground := False;
   FHitNav.Color := ColorBackground;
@@ -1971,7 +1990,9 @@ var
   W: Integer;
 begin
   W := FHitPrev.Width + FHitLabel.Width + FHitLabel.Margins.Left + FHitLabel.Margins.Right + FHitNext.Width;
-  FHitBox.SetBounds(Max((FHitNav.ClientWidth - W) div 2, 0),
+  // Flush right: the "›" glyph (centred in its 20 px button) ends at the text's
+  // right edge, the button's empty half goes past it.
+  FHitBox.SetBounds(Max(FHitNav.ClientWidth - W + ScaleValue(6), 0),
     (FHitNav.ClientHeight - FHitBox.Height) div 2, W, FHitBox.Height);
 end;
 
@@ -1989,18 +2010,23 @@ begin
     Count := FMatchCount;
     Focus := FFocusMatch;
   end;
-  FHitNav.Visible := Count > 0;
-  if Count = 0 then
+  if (Count > 0) <> FHitNav.Visible then
   begin
-    ChapterBarResize(nil);
-    Exit;
+    // alTop keeps the order of Top: right under the crumbs.
+    FHitNav.Top := pnlCrumbs.BoundsRect.Bottom + 1;
+    FHitNav.Visible := Count > 0;
+    if Count > 0 then
+      pnlCrumbs.Margins.Bottom := ScaleValue(HitRowGap)
+    else
+      pnlCrumbs.Margins.Bottom := ScaleValue(CrumbsBottom);
   end;
+  if Count = 0 then
+    Exit;
   if Focus >= 0 then
     FHitLabel.Caption := L('read.hitNav', [FHitQuery, Focus + 1, Count])
   else
     FHitLabel.Caption := L('read.hitCount', [FHitQuery, Count]);
   HitNavResize(nil);
-  ChapterBarResize(nil);                 // the links share the bar with the navigator
 end;
 
 { the chapter bar (A.2) }
@@ -2080,10 +2106,10 @@ begin
   ChapterBarResize(nil);
 end;
 
-// Each link takes its text's width, at most what the match navigator leaves.
+// Each link takes its text's width, at most half of the bar.
 procedure TMainForm.ChapterBarResize(Sender: TObject);
 var
-  Room, Middle: Integer;
+  Room: Integer;
 
   function TextWidth(Link: TLabel): Integer;
   begin
@@ -2094,10 +2120,7 @@ var
 begin
   if FPrevLink = nil then
     Exit;
-  Middle := 0;
-  if (FHitNav <> nil) and FHitNav.Visible then
-    Middle := FHitBox.Width + ScaleValue(24);
-  Room := Max((pnlChapterNav.ClientWidth - Middle) div 2, 0);
+  Room := Max((pnlChapterNav.ClientWidth - ScaleValue(24)) div 2, 0);
   FPrevLink.Width := Min(TextWidth(FPrevLink), Room);
   FNextLink.Width := Min(TextWidth(FNextLink), Room);
 end;

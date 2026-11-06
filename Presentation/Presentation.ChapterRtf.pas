@@ -8,8 +8,10 @@
 
   Character map (R6, R4-11). Positions are in the units of EM_GETTEXTLENGTHEX
   without GTL_USECRLF: every UTF-16 code unit of text is 1, every \par is 1.
-  Paragraphs are SEPARATED by \par - there is none after the last one, because
-  RichEdit keeps its own final paragraph mark, which it does not count.
+  Paragraphs are SEPARATED by \par; the document ends with one more \par that
+  is NOT counted: RichEdit folds it into its own final paragraph mark (which it
+  does not count), and without it RichEdit dropped the paragraph formatting of
+  the last paragraph - its \li and tabs (seen on Windows, 2026-11-06).
 
   Spacing between paragraphs is an EMPTY spacer paragraph of exact height
   (\sl-N\slmult0), never \sa/\sb: RichEdit counts the space after a paragraph
@@ -87,17 +89,21 @@ type
 const
   // Paragraph styles by Kind (B-04) - the ONLY place with RTF font sizes.
   // \fs is half-points: px * 0.75 * 2. Spacing in twips: 1 px = 15 twips.
-  // Line spacing of text is the font's own; \sl is set only on spacers (R6, R4-08).
+  // Line spacing as the mockup (R4-08 recipe, Vitalii 2026-11-06; R6 had the
+  // font's own): EXACT heights - text 1.72 x 20.5 px = 529 twips, epigraph
+  // 1.6 x 19 px = 456. RichEdit paints \highlight over the whole line, so a
+  // match gets a box of the full line height (tried first; own painting next
+  // if it looks bad).
   // Space before / after a paragraph is NOT in the style: see the Space* pairs
   // below and the spacer paragraphs (unit header).
   RtfChapterTitle    = '\f0\fs69\cf7';                      // 46 px
   RtfChapterLabel    = '\f0\fs26\i\cf3';                    // 17 px
   RtfSubChapterTitle = '\f0\fs42\cf1';                      // 28 px
-  RtfEpigraph        = '\li1560\ri600\f0\fs29\i\cf4';       // 19 px, padding 0 40 after the margin; E-10: one block
+  RtfEpigraph        = '\li1560\ri600\sl-456\slmult0\f0\fs29\i\cf4';   // 19 px / 1.6, padding 0 40 after the margin; E-10: one block
   RtfSectionHeading  = '\f0\fs31\b\cf1';                    // real Bold file (E-04)
   RtfSourceCitation  = '\qr\f0\fs22\i\cf3';                 // 15 px
-  RtfText            = '\f0\fs31\cf1';                      // 20.5 px; no first-line indent (mockup)
-  RtfVerse           = '\f0\fs31\cf1';
+  RtfText            = '\sl-529\slmult0\f0\fs31\cf1';       // 20.5 px / 1.72; no first-line indent (mockup)
+  RtfVerse           = '\sl-529\slmult0\f0\fs31\cf1';       // as text: 1.72
 
   // Space before / after, twips. The gap between two paragraphs is the
   // previous After plus the next Before - what \sa + \sb gave in RichEdit.
@@ -534,7 +540,7 @@ begin
       Ranges.Add(R);
     end;
 
-    W.Raw('}');
+    W.Raw('\par}');                            // uncounted: see the unit header
     Result.Rtf := W.ToRtf;
     Result.ExpectedChars := W.Chars;
     Result.Paragraphs := Ranges.ToArray;
@@ -610,7 +616,7 @@ begin
       Ranges.Add(R);
     end;
 
-    W.Raw('}');
+    W.Raw('\par}');                            // uncounted: see the unit header
     Result.Rtf := W.ToRtf;
     Result.ExpectedChars := W.Chars;
     Result.Paragraphs := Ranges.ToArray;

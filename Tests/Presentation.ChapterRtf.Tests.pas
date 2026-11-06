@@ -169,6 +169,12 @@ begin
     end;
     Result.Text := Text.ToString;
     Result.Highlight := Levels;
+    // RichEdit folds the document's closing \par into its own final mark.
+    if Result.Text.EndsWith(#13) then
+    begin
+      Result.Text := Copy(Result.Text, 1, Length(Result.Text) - 1);
+      SetLength(Result.Highlight, Length(Result.Highlight) - 1);
+    end;
   finally
     Text.Free;
   end;
@@ -281,7 +287,7 @@ begin
   Doc := TChapterRtfBuilder.Build(SampleChapter, 'Розділ 3', Theme, THighlightRequest.None);
   Back := ReadBack(Doc.Rtf);
   Assert.AreEqual(Length(Back.Text), Doc.ExpectedChars);
-  Assert.IsFalse(Back.Text.EndsWith(#13), 'no \par after the last paragraph');
+  Assert.IsFalse(Back.Text.EndsWith(#13), 'only the closing \par after the last paragraph, folded by RichEdit');
 end;
 
 procedure TChapterRtfBuilderTests.Book_PageMarkerOnlyWhereTextStartsAPage;
@@ -393,8 +399,9 @@ begin
   Assert.Contains(Doc.Rtf, RtfEpigraph);
   Assert.Contains(Doc.Rtf, RtfSectionHeading);
   Assert.Contains(Doc.Rtf, RtfSourceCitation);
-  // Line spacing of text is the font's own (R4-08): \sl only on spacers.
-  Assert.AreEqual(CountOf(RtfSpacerStart, Doc.Rtf), CountOf('\sl', Doc.Rtf) - CountOf('\slmult', Doc.Rtf));
+  // Line spacing as the mockup (R4-08): exact 1.72 for text, 1.6 for the epigraph.
+  Assert.Contains(Doc.Rtf, '\sl-529\slmult0');
+  Assert.Contains(Doc.Rtf, '\sl-456\slmult0');
 end;
 
 // A match at the end of a paragraph got a highlight box reaching into the gap:
