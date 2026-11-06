@@ -42,6 +42,7 @@ category.dailyReadings = Daily readings
 category.bible = Bible
 
 shelf.booksCount = Books in the library: %d
+shelf.seriesBooks = Books in the series: %d
 shelf.reading = reading · chapter %d
 toc.title = Contents
 toc.reading = reading

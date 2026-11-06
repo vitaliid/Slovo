@@ -80,6 +80,7 @@ type
     [Test] procedure Start_BuildsTree_ByCategorySeriesAndTitle;
     [Test] procedure Start_TreeIsConsistent_AndHasBibleChapters;
     [Test] procedure Start_NoSavedPosition_ShowsShelf;
+    [Test] procedure ShowSeriesShelf_KeepsTheSeries_UntilAnotherShelf;
     [Test] procedure Start_SavedPosition_OpensChapter;
     [Test] procedure Start_InvalidPosition_ShelfAndLog_NoBanner;
     [Test] procedure Start_ChapterFailsToLoad_ShelfAndLog_NoBanner;
@@ -353,6 +354,7 @@ begin
   MB := NodeIndex(lnModule, 'MB');
   SC := NodeIndex(lnModule, 'SC');
   Assert.AreEqual('Конфликт веков', FNodes[Series].Caption);
+  Assert.AreEqual('conflict-of-ages', FNodes[Series].Series, 'the series shelf needs its code');
   // Series first, by SortOrder; then the rest by Title (B-25).
   Assert.IsTrue((Series < PP) and (PP < DA) and (DA < MB) and (MB < SC),
     Format('series %d, PP %d, DA %d, MB %d, SC %d', [Series, PP, DA, MB, SC]));
@@ -382,6 +384,18 @@ begin
     end;
   Assert.AreEqual(50, Chapters);
   Assert.AreEqual(2, FNodes[NodeIndex(lnBibleTranslation, 'ohienko-uk')].Count);
+end;
+
+procedure TMainViewModelTests.ShowSeriesShelf_KeepsTheSeries_UntilAnotherShelf;
+begin
+  CreateViewModel;
+  FVM.Start;
+  FVM.ShowSeriesShelf(bcSpiritOfProphecy, 'conflict-of-ages');
+  Assert.IsTrue(FVM.View = rvShelf);
+  Assert.AreEqual('conflict-of-ages', FVM.ShelfSeries);
+  Assert.AreEqual('', string(FVM.ShelfTranslation));
+  FVM.ShowShelf(bcSpiritOfProphecy);
+  Assert.AreEqual('', FVM.ShelfSeries, 'a category shelf is the whole category');
 end;
 
 procedure TMainViewModelTests.Start_NoSavedPosition_ShowsShelf;

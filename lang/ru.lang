@@ -42,6 +42,7 @@ category.dailyReadings = Ежедневные чтения
 category.bible = Библия
 
 shelf.booksCount = Книг в библиотеке: %d
+shelf.seriesBooks = Книг в серии: %d
 shelf.reading = читаю · глава %d
 toc.title = Содержание
 toc.reading = читаю

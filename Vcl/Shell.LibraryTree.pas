@@ -16,6 +16,9 @@
   list 26 px in with a hairline on the left, the number in a 12 px column, the
   title 9 px after it, number and title on one baseline; a Bible book nests in
   its translation the same way. Row heights carry the mockup's margins.
+  A series (not in the mockup) is a row like a book without the box - caret,
+  title, "5 кн." - and its books nest under it with the hairline, so a book
+  outside the series no longer looks like one of it (Vitalii, 2026-11-06).
     - category: 10.5 px caps, semi-bold, muted, a hairline to the right;
       series - the same without the line;
     - book / translation: the square box "Шукати в цій книзі" (R4-41: only
@@ -74,6 +77,7 @@ type
     function InCheckZone(Node: PVirtualNode; X: Integer): Boolean;
     function InCaretZone(Node: PVirtualNode; X: Integer): Boolean;
     procedure TreeMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+    procedure TreeCollapsing(Sender: TBaseVirtualTree; Node: PVirtualNode; var Allowed: Boolean);
     function CounterText(Index: Integer): string;
     procedure InvalidatePath(Index: Integer);
     procedure Activate(Node: PVirtualNode);
@@ -197,6 +201,7 @@ begin
   FTree.OnExpanded := TreeCollapsedOrExpanded;
   FTree.OnCollapsed := TreeCollapsedOrExpanded;
   FTree.OnMouseMove := TreeMouseMove;
+  FTree.OnCollapsing := TreeCollapsing;
 end;
 
 destructor TLibraryTree.Destroy;
@@ -208,6 +213,7 @@ begin
   FTree.OnExpanded := nil;
   FTree.OnCollapsed := nil;
   FTree.OnMouseMove := nil;
+  FTree.OnCollapsing := nil;
   inherited;
 end;
 
@@ -282,8 +288,7 @@ begin
               H := CategoryHeight;
             FirstCategory := False;
           end;
-        lnSeries:                             H := SeriesHeight;
-        lnModule, lnBibleTranslation, lnBibleBook: H := BookHeight;
+        lnSeries, lnModule, lnBibleTranslation, lnBibleBook: H := BookHeight;
       else
         H := ChapterHeight;
       end;
@@ -298,7 +303,7 @@ begin
       FTree.NodeHeight[Node] := H;
     end;
     for I := 0 to High(Nodes) do
-      if Nodes[I].Kind = lnCategory then
+      if Nodes[I].Kind in [lnCategory, lnSeries] then
         FTree.Expanded[FTreeNodes[I]] := True;
   finally
     FTree.EndUpdate;
@@ -386,7 +391,7 @@ end;
 
 function TLibraryTree.IsBookLike(Index: Integer): Boolean;
 begin
-  Result := FNodes[Index].Kind in [lnModule, lnBibleTranslation, lnBibleBook];
+  Result := FNodes[Index].Kind in [lnSeries, lnModule, lnBibleTranslation, lnBibleBook];
 end;
 
 // How many book-like rows (book, translation, Bible book) this row is nested in.
@@ -419,7 +424,7 @@ begin
   if (BookDepth(Node) > 0) and (Node.PrevSibling = nil) then
     Inc(Result.Top, Px(NestTop));
   case FNodes[Index].Kind of
-    lnModule, lnBibleTranslation, lnBibleBook: Result.Bottom := Result.Top + Px(BookRow);
+    lnSeries, lnModule, lnBibleTranslation, lnBibleBook: Result.Bottom := Result.Top + Px(BookRow);
     lnChapter:                                 Result.Bottom := Result.Top + Px(ChapterRow);
   end;
 end;
@@ -429,11 +434,14 @@ var
   N: TLibraryNode;
 begin
   N := FNodes[Index];
+  if (N.Kind = lnSeries) and (N.Count <= 0) then
+    N.Count := FTreeNodes[Index].ChildCount;  // the catalog gives no count for a series
   if N.Count <= 0 then
     Exit('');
   case N.Kind of
     lnModule:           Result := L('library.chapters', [N.Count]);
     lnBibleTranslation: Result := L('library.bibleBooks', [N.Count]);
+    lnSeries:           Result := L('library.bibleBooks', [N.Count]);   // "5 кн." 
     lnBibleBook:        Result := L('library.bibleChapters', [N.Count]);
   else
     Result := '';
@@ -523,38 +531,29 @@ begin
   Right := R.Right - Px(RowPadRight);
 
   case N.Kind of
-    lnCategory, lnSeries:
+    lnCategory:
       begin
-        if N.Kind = lnCategory then
-          Text := L(N.CaptionKey).ToUpper
-        else
-          Text := N.Caption.ToUpper;
+        Text := L(N.CaptionKey).ToUpper;
         // Mockup: 10.5 px, weight 600, letter-spacing .12em, 8 px above the
         // group's first row; a category has a hairline to the right.
         UseFont(UiFontSemiBoldName, GroupPx, ColorMuted);
         SetTracking(Canvas, 0.12);
         X := Box.Left + Px(GroupX);
-        if N.Kind = lnCategory then
-          B := Rect(X, R.Bottom - Px(CategoryBelow) - Px(CaptionLine), Right, R.Bottom - Px(CategoryBelow))
-        else
-          B := Rect(X, R.Bottom - Px(SeriesBelow) - Px(CaptionLine), Right, R.Bottom - Px(SeriesBelow));
+        B := Rect(X, R.Bottom - Px(CategoryBelow) - Px(CaptionLine), Right, R.Bottom - Px(CategoryBelow));
         Canvas.Brush.Style := bsClear;
         DrawIn(Text, B.Left, B.Top, B.Right, B.Bottom, DT_VCENTER or DT_LEFT);
-        if N.Kind = lnCategory then
+        W := X + Canvas.TextWidth(Text) + Px(8);
+        if W < Right then
         begin
-          W := X + Canvas.TextWidth(Text) + Px(8);
-          if W < Right then
-          begin
-            Y1 := (B.Top + B.Bottom) div 2;
-            Canvas.Brush.Style := bsSolid;
-            Canvas.Brush.Color := ColorGroupLine;
-            Canvas.FillRect(Rect(W, Y1, Right, Y1 + 1));
-          end;
+          Y1 := (B.Top + B.Bottom) div 2;
+          Canvas.Brush.Style := bsSolid;
+          Canvas.Brush.Color := ColorGroupLine;
+          Canvas.FillRect(Rect(W, Y1, Right, Y1 + 1));
         end;
         SetTextCharacterExtra(Canvas.Handle, 0);
       end;
 
-    lnModule, lnBibleTranslation, lnBibleBook:
+    lnSeries, lnModule, lnBibleTranslation, lnBibleBook:
       begin
         if Hot then
           PaintRoundRect(Canvas, Rect(Box.Left, Box.Top, R.Right, Box.Bottom), Px(6), ColorRowHover, clNone);
@@ -679,6 +678,16 @@ begin
   Result := (X >= Left) and (X < Left + Px(ButtonPx));
 end;
 
+// A category never folds - not by a click, not by ← (Vitalii, 2026-11-06).
+procedure TLibraryTree.TreeCollapsing(Sender: TBaseVirtualTree; Node: PVirtualNode;
+  var Allowed: Boolean);
+var
+  Index: Integer;
+begin
+  Index := IndexOf(Node);
+  Allowed := (Index < 0) or (FNodes[Index].Kind <> lnCategory);
+end;
+
 // The caret has its own hover inside the hot row: repaint it as the mouse moves.
 procedure TLibraryTree.TreeMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
 begin
@@ -701,12 +710,10 @@ begin
   Index := IndexOf(Node);
   if Index < 0 then
     Exit;
-  case FNodes[Index].Kind of
-    lnCategory, lnSeries:
-      FTree.Expanded[Node] := not FTree.Expanded[Node];
-    lnModule, lnBibleTranslation, lnBibleBook:
-      FTree.Expanded[Node] := True;            // A.3: the book opens in the tree and as Toc
-  end;
+  // A category never folds (no caret: folded or not would not show); a
+  // series, a book, a translation open in the tree and as their shelf / toc.
+  if FNodes[Index].Kind in [lnSeries, lnModule, lnBibleTranslation, lnBibleBook] then
+    FTree.Expanded[Node] := True;
   if Assigned(FOnActivate) then
     FOnActivate(FNodes[Index]);
 end;

@@ -35,6 +35,7 @@ type
     Parent: Integer;              // -1 = root
     CaptionKey: string;           // lnCategory: 'category.spiritOfProphecy', 'category.bible'...
     Caption: string;              // series/translation/book/chapter - from the database (B-25)
+    Series: string;               // lnSeries: its code (TModule.Series) - the series' shelf
     ModuleId: TModuleId;
     BookCode: TBookCode;          // lnBibleBook and Bible chapters
     ChapterOrder: Integer;        // lnChapter: book ChapterOrder or Bible ChapterNumber
@@ -75,6 +76,7 @@ type
     FView: TReaderView;
     FShelfCategory: TBookCategory;
     FShelfTranslation: TModuleId;       // '' = the shelf shows a book category
+    FShelfSeries: string;               // <> '' = the shelf shows that series of FShelfCategory
     FTocModule: TModuleId;
     FTocBook: TBookRef;                 // Bible table of contents; BookCode '' = a book's TOC
     FPosition: TReadingPosition;
@@ -108,6 +110,8 @@ type
     // ---- Navigation
     procedure ShowShelf(Category: TBookCategory); overload;
     procedure ShowShelf(const TranslationId: TModuleId); overload;
+    // The books of one series as the shelf (Vitalii, 2026-11-06).
+    procedure ShowSeriesShelf(Category: TBookCategory; const Series: string);
     procedure ShowToc(const ModuleId: TModuleId); overload;
     procedure ShowToc(const Book: TBookRef); overload;
     procedure OpenChapter(const Ref: TChapterRef); overload;
@@ -135,6 +139,7 @@ type
     property View: TReaderView read FView;
     property ShelfCategory: TBookCategory read FShelfCategory;
     property ShelfTranslation: TModuleId read FShelfTranslation;
+    property ShelfSeries: string read FShelfSeries;
     property TocModule: TModuleId read FTocModule;
     property TocBook: TBookRef read FTocBook;
     property Position: TReadingPosition read FPosition;
@@ -339,6 +344,7 @@ begin
             SeriesIndex := AddNode(lnSeries, CategoryIndex);
             N := Nodes[SeriesIndex];
             N.Caption := M.SeriesTitle;
+            N.Series := M.Series;
             Nodes[SeriesIndex] := N;
             LastSeries := M.Series;
           end;
@@ -436,12 +442,22 @@ procedure TMainViewModel.ShowShelf(Category: TBookCategory);
 begin
   FShelfCategory := Category;
   FShelfTranslation := '';
+  FShelfSeries := '';
   SetView(rvShelf);
 end;
 
 procedure TMainViewModel.ShowShelf(const TranslationId: TModuleId);
 begin
   FShelfTranslation := TranslationId;
+  FShelfSeries := '';
+  SetView(rvShelf);
+end;
+
+procedure TMainViewModel.ShowSeriesShelf(Category: TBookCategory; const Series: string);
+begin
+  FShelfCategory := Category;
+  FShelfTranslation := '';
+  FShelfSeries := Series;
   SetView(rvShelf);
 end;
 

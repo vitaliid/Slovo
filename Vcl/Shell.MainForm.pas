@@ -126,6 +126,8 @@ type
     FChapterList: TChapterList;
     FLeftPad: Integer;
     FCrumbActions: TArray<TProc>;
+    function FindSeries(const Series: string): Integer;
+    function SeriesTitle(const Series: string): string;
     function FindNode(Kind: TLibraryNodeKind; const ModuleId: TModuleId; const BookCode: TBookCode = ''): Integer;
     function IsUnder(Index, Ancestor: Integer): Boolean;
     procedure AddCrumb(const Caption: string; const Action: TProc);
@@ -1273,6 +1275,12 @@ begin
       rvShelf:
         if FViewModel.ShelfTranslation <> '' then
           AddCrumb(L(BibleCategoryKey) + ' · ' + FViewModel.ModuleTitle(FViewModel.ShelfTranslation), nil)
+        else if FViewModel.ShelfSeries <> '' then
+        begin
+          Category := FViewModel.ShelfCategory;
+          AddCrumb(L(CategoryKeys[Category]), procedure begin FViewModel.ShowShelf(Category); end);
+          AddCrumb(SeriesTitle(FViewModel.ShelfSeries), nil);
+        end
         else
           AddCrumb(L(CategoryKeys[FViewModel.ShelfCategory]), nil);
       rvToc:
@@ -1407,6 +1415,27 @@ begin
   Result := False;
 end;
 
+function TMainForm.FindSeries(const Series: string): Integer;
+var
+  I: Integer;
+begin
+  for I := 0 to High(FNodes) do
+    if (FNodes[I].Kind = lnSeries) and (FNodes[I].Series = Series) then
+      Exit(I);
+  Result := -1;
+end;
+
+function TMainForm.SeriesTitle(const Series: string): string;
+var
+  I: Integer;
+begin
+  I := FindSeries(Series);
+  if I >= 0 then
+    Result := FNodes[I].Caption
+  else
+    Result := Series;
+end;
+
 procedure TMainForm.FillShelf;
 var
   Rows: TArray<TListRow>;
@@ -1436,6 +1465,24 @@ begin
       end;
     Title := L(BibleCategoryKey) + ' · ' + FViewModel.ModuleTitle(FViewModel.ShelfTranslation);
     Subtitle := L('library.bibleBooks', [Length(Rows)]);
+  end
+  else if FViewModel.ShelfSeries <> '' then
+  begin
+    // A series: its books in tree order (SortOrder, B-25).
+    Root := FindSeries(FViewModel.ShelfSeries);
+    for I := 0 to High(FNodes) do
+      if (Root >= 0) and (FNodes[I].Kind = lnModule) and (FNodes[I].Parent = Root) then
+      begin
+        Row := Default(TListRow);
+        Row.NodeIndex := I;
+        Row.Title := FNodes[I].Caption;
+        Row.Meta := L('library.chapters', [FNodes[I].Count]);
+        if FSettings.GetPosition(FNodes[I].ModuleId, P) and (P.Kind = ckBook) then
+          Row.Status := L('shelf.reading', [P.Chapter.ChapterOrder]);
+        Rows := Rows + [Row];
+      end;
+    Title := SeriesTitle(FViewModel.ShelfSeries);
+    Subtitle := L('shelf.seriesBooks', [Length(Rows)]);
   end
   else
   begin
@@ -1612,6 +1659,10 @@ begin
       for Category := Low(TBookCategory) to High(TBookCategory) do
         if CategoryKeys[Category] = Node.CaptionKey then
           FViewModel.ShowShelf(Category);
+    lnSeries:
+      for Category := Low(TBookCategory) to High(TBookCategory) do
+        if (Node.Parent >= 0) and (CategoryKeys[Category] = FNodes[Node.Parent].CaptionKey) then
+          FViewModel.ShowSeriesShelf(Category, Node.Series);
     lnModule:           FViewModel.ShowToc(Node.ModuleId);
     lnBibleTranslation: FViewModel.ShowShelf(Node.ModuleId);
     lnBibleBook:        FViewModel.ShowToc(Book);
@@ -1628,7 +1679,7 @@ begin
         Chapter.ChapterOrder := Node.ChapterOrder;
         FViewModel.OpenChapter(Chapter);
       end;
-  end;                                   // lnSeries: the tree only expands it
+  end;
 end;
 
 procedure TMainForm.LibraryNodeChecked(const Node: TLibraryNode; Checked: Boolean);
