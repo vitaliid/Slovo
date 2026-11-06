@@ -1,28 +1,37 @@
 r"""Demo library for LOOKING at the program - not the importer.
 
-Turns three books (PP, DA, SC) and the Synodal Bible from an unpacked books.chm
-into the SQL that fills Tests/fixtures/schema.sql. The real importer is a
-separate project (architecture/Slovo_Import_Deferred.md); this script cuts every
-corner it can: no spans, no PageBreakOffset, a page marker simply means "the
-next paragraphs are on page N". Good enough to read whole chapters with their
-real structure. The result holds the translations' text - never commit it.
+Turns every book of an unpacked books.chm (E. G. White, history, spiritual life,
+prophecy study) and the Synodal Bible into the SQL that fills
+Tests/fixtures/schema.sql. "Утренние чтения" stay out (anomalous structure).
+The real importer is a separate project (architecture/Slovo_Import_Deferred.md);
+this script cuts every corner it can: no spans, no PageBreakOffset, a page marker
+simply means "the next paragraphs are on page N". Good enough to read whole
+chapters with their real structure. The result holds the translations' text -
+never commit it.
 
 From the repository root (Windows):
 
-  hh.exe -decompile %TEMP%\books books.chm
+  "C:\Program Files\7-Zip\7z.exe" x -o%TEMP%\books books.chm
   python tools\scripts\build_demo_library.py %TEMP%\books %TEMP%\demo.sql
   tools\sqlite\out\sqlite3.exe Win64\Debug\library.db ".read Tests/fixtures/schema.sql" ".read %TEMP%/demo.sql"
 
+(hh.exe -decompile also unpacks it, but now and then silently writes nothing.)
 The custom sqlite3.exe is required: the stemmed tables need snowball (B-31).
 The target library.db must not exist yet (and Slovo must not be running).
 """
 import html, os, re, sys, unicodedata
 
-BOOKS = [  # folder, ModuleId, title, series, series title, series order, sort order, abbreviation
-    ('PP', 'PP', 'Патриархи и пророки', 'conflict-of-ages', 'Конфликт веков', 1, 1, 'ПП'),
-    ('DA', 'DA', 'Желание веков',       'conflict-of-ages', 'Конфликт веков', 1, 3, 'ЖВ'),
-    ('SC', 'SC', 'Путь ко Христу',      '', '', 0, 0, 'ПкХ'),
+# CHM section folder -> TBookCategory (bcSpiritOfProphecy, bcHistory, bcSpiritualLife, bcProphecyStudy)
+SECTIONS = [('egw_books', 0), ('history', 1), ('spiritual', 2), ('prophecy', 3)]
+
+# Series (B-25): code, title, SeriesOrder, members in canonical order.
+SERIES = [
+    ('conflict-of-ages', 'Конфликт веков', 1, ['PP', 'PK', 'DA', 'AA', 'GC']),
+    ('testimonies', 'Свидетельства для Церкви', 2, ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9']),
 ]
+
+# The CHM table of contents gives PaM the same abbreviation as PM.
+ABBREVIATION_FIXES = {'PaM': 'ПС'}
 
 # Synodal order of books/NN.htm -> OSIS code, short title, abbreviation.
 BIBLE = [
@@ -50,12 +59,15 @@ K_TITLE, K_SUBTITLE, K_EPIGRAPH, K_HEADING, K_TEXT = 0, 1, 2, 3, 6
 
 P_RE = re.compile(r'<p\b([^>]*)>(.*?)</p>', re.S | re.I)
 MARKER_RE = re.compile(r'^\[(\d+)\]$')
+INLINE_PAGE_RE = re.compile(r'<a\s+name=["\']?page\d+["\']?\s*>\s*\[\d+\]\s*</a>', re.I)
+TOC_LINK_RE = re.compile(r'<a\s+href="([^"#]+\.htm)[^"]*"\s+class="l"\s*>(.*?)</a>', re.S | re.I)
+CHAPTER_PREFIX_RE = re.compile(r'^Глава\s+[\dIVXLCDM]+\.?\s*', re.I)
 
 
 def clean(fragment):
     s = re.sub(r'<[^>]+>', '', fragment)
     s = html.unescape(s)
-    s = s.replace('\xad', '').replace('​', '').replace('﻿', '').replace('\xa0', ' ')
+    s = s.replace('\xad', '').replace('\u200b', '').replace('\ufeff', '').replace('\xa0', ' ')
     s = re.sub(r'\s+', ' ', s).strip()
     return unicodedata.normalize('NFC', s)
 
@@ -64,13 +76,45 @@ def q(s):
     return "'" + s.replace("'", "''") + "'"
 
 
-def book(root, folder, module_id, out, ids):
-    files = sorted(f for f in os.listdir(os.path.join(root, 'egw_books', folder)) if f.endswith('.htm'))
-    page, on_page, order = 0, 0, 0
-    for name in files:
-        text = open(os.path.join(root, 'egw_books', folder, name), encoding='utf-8-sig').read()
-        paras = []
-        title = None
+def read(path):
+    return open(path, encoding='utf-8-sig', errors='replace').read()
+
+
+def toc_abbreviations(root):
+    """'egw_books/PP' -> 'ПП', title from the CHM contents (<a name="ПП">Патриархи и пророки</a>)."""
+    text = read(os.path.join(root, 'contents.htm'))
+    result = {}
+    for abbr, title, folder in re.findall(
+            r'<a name="([^"]*)">([^<]*)</a>\s*<p><a href="(egw_books/[^/]+)/first\.htm"', text, re.I):
+        result[folder.split('/')[1]] = (abbr, clean(title))
+    return result
+
+
+def book_files(folder):
+    """Chapter files in the order of the book's own table of contents (first.htm)."""
+    first = read(os.path.join(folder, 'first.htm'))
+    title = clean(re.search(r'<title>(.*?)</title>', first, re.S | re.I).group(1))
+    author = re.search(r'<div class="autor">(.*?)</div>', first, re.S | re.I)
+    author = clean(author.group(1)) if author else ''
+    present = {f.lower(): f for f in os.listdir(folder) if f.lower().endswith('.htm') and f.lower() != 'first.htm'}
+    files = []
+    for href, text in TOC_LINK_RE.findall(first):
+        name = present.get(href.lower())
+        if name and name not in [f for f, _ in files]:
+            files.append((name, clean(text)))
+    listed = {f for f, _ in files}
+    files += [(f, '') for f in sorted(present.values()) if f not in listed]   # not in the TOC: at the end
+    return title, author, files
+
+
+def book(folder, module_id, out, ids):
+    _, _, files = book_files(folder)
+    chapters = []            # [title, [(kind, text, page, on_page)]]
+    page, on_page = 0, 0
+    for name, toc_title in files:
+        text = INLINE_PAGE_RE.sub('', read(os.path.join(folder, name)))
+        current = [toc_title, []]
+        chapters.append(current)
         for attrs, inner in P_RE.findall(text):
             cls = re.search(r'class="([^"]+)"', attrs)
             cls = cls.group(1).lower() if cls else ''
@@ -84,22 +128,32 @@ def book(root, folder, module_id, out, ids):
                 page, on_page = int(m.group(1)), 0
                 continue
             if cls == 'glava':
-                title = re.sub(r'^Глава\s+\d+\s*', '', plain).strip() or plain
-                paras.append((K_TITLE, title, 0, 0))
+                title = CHAPTER_PREFIX_RE.sub('', plain).strip() or plain
+                if any(k != K_TITLE for k, *_ in current[1]):
+                    current = [title, []]           # one more chapter in the same file
+                    chapters.append(current)
+                else:
+                    current[0], current[1] = title, []
+                current[1].append((K_TITLE, title, 0, 0))
                 continue
             if cls == 'glava2':
-                paras.append((K_SUBTITLE, plain, 0, 0))
+                current[1].append((K_SUBTITLE, plain, 0, 0))
                 continue
             stripped = inner.strip()
             if 'center' in attrs.lower() and re.fullmatch(r'(?is)<i>.*</i>', stripped):
-                paras.append((K_EPIGRAPH, plain, 0, 0))
+                current[1].append((K_EPIGRAPH, plain, 0, 0))
             elif re.fullmatch(r'(?is)<b>.*</b>', stripped):
-                paras.append((K_HEADING, plain, 0, 0))
+                current[1].append((K_HEADING, plain, 0, 0))
             else:
                 on_page += 1
-                paras.append((K_TEXT, plain, page, on_page))
-        if title is None:
-            continue
+                current[1].append((K_TEXT, plain, page, on_page))
+    order = 0
+    for title, paras in chapters:
+        if not any(k != K_TITLE for k, *_ in paras):
+            continue                                   # empty file / title only
+        title = title or next(t for k, t, *_ in paras if k != K_TITLE)[:80]
+        if paras[0][0] != K_TITLE:
+            paras.insert(0, (K_TITLE, title, 0, 0))
         order += 1
         out.append(f"INSERT INTO Chapters VALUES ({q(module_id)}, {order}, {q(title)});")
         for index, (kind, plain, start_page, para_on_page) in enumerate(paras, 1):
@@ -112,7 +166,7 @@ def book(root, folder, module_id, out, ids):
 
 def bible(root, out, ids):
     for n, (code, short, abbr) in enumerate(BIBLE, 1):
-        text = open(os.path.join(root, 'bible', f'{n:02d}.htm'), encoding='utf-8-sig').read()
+        text = read(os.path.join(root, 'bible', f'{n:02d}.htm'))
         parts = re.split(r'<a name="(\d+)" class="b_glava">', text)
         chapters = 0
         verses = []
@@ -138,19 +192,35 @@ def bible(root, out, ids):
 
 
 def main(root, target):
-    out = ["-- Generated by tools/demo-library/build_demo_sql.py - demo data, not a release library.",
+    out = ["-- Generated by tools/scripts/build_demo_library.py - demo data, not a release library.",
            "PRAGMA foreign_keys = ON;", "BEGIN;",
-           "INSERT INTO Meta VALUES (1, '2026-11-05T00:00:00Z');"]
-    for folder, mid, title, series, stitle, sorder, order, abbr in BOOKS:
-        out.append("INSERT INTO Modules (ModuleId, Kind, Category, Language, Title, Author, Series, SeriesTitle, "
-                   "SeriesOrder, SortOrder, Abbreviation) VALUES "
-                   f"({q(mid)}, 0, 0, 'ru', {q(title)}, 'Э. Уайт', {q(series)}, {q(stitle)}, {sorder}, {order}, {q(abbr)});")
+           "INSERT INTO Meta VALUES (1, '2026-11-06T00:00:00Z');"]
+    series_of = {mid: (code, title, sorder, members.index(mid) + 1)
+                 for code, title, sorder, members in SERIES for mid in members}
+    egw = toc_abbreviations(root)
+    modules = []
+    for section, category in SECTIONS:
+        for name in sorted(os.listdir(os.path.join(root, section))):
+            folder = os.path.join(root, section, name)
+            if not os.path.isfile(os.path.join(folder, 'first.htm')):
+                continue
+            title, author, _ = book_files(folder)
+            abbr, toc_title = egw.get(name, ('', '')) if section == 'egw_books' else ('', '')
+            abbr = ABBREVIATION_FIXES.get(name, abbr)
+            title = toc_title or title
+            code, stitle, sorder, pos = series_of.get(name, ('', '', 0, 0))
+            out.append("INSERT INTO Modules (ModuleId, Kind, Category, Language, Title, Author, Series, SeriesTitle, "
+                       "SeriesOrder, SortOrder, Abbreviation) VALUES "
+                       f"({q(name)}, 0, {category}, 'ru', {q(title)}, {q(author)}, {q(code)}, {q(stitle)}, "
+                       f"{sorder}, {pos}, {q(abbr)});")
+            modules.append((folder, name, title))
     out.append("INSERT INTO Modules (ModuleId, Kind, Category, Language, Title, Author) VALUES "
                "('synodal-ru', 1, 0, 'ru', 'Библия (Синодальный)', '');")
     ids = [0]
-    for folder, mid, *_ in BOOKS:
-        count = book(root, folder, mid, out, ids)
-        print(f'{mid}: {count} chapters', file=sys.stderr)
+    for folder, mid, title in modules:
+        count = book(folder, mid, out, ids)
+        print(f'{mid}: {count} chapters - {title}', file=sys.stderr)
+    print(f'{len(modules)} books, {ids[0]} paragraphs', file=sys.stderr)
     ids = [0]
     bible(root, out, ids)
     print(f'synodal-ru: {ids[0]} verses', file=sys.stderr)
