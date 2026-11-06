@@ -1,10 +1,15 @@
 ﻿unit Shell.ChapterList;
 
-(* The shelf and the table of contents in the text column (Slovo_04 A.2, C.5;
-  R4-38): ONE flat VirtualStringTree for both states, rows of 56 px, painted in
-  OnAfterCellPaint - the number of a chapter in the left margin, the title, a
-  muted second line ("73 розд.") and the accent status ("читаю · розділ 17" on
-  the shelf, "ЧИТАЮ" on the current chapter of a table of contents).
+(* The shelf and the table of contents in the text column (Slovo_04 A.2, C.5):
+  ONE VirtualStringTree for both states, painted in OnAfterCellPaint.
+    - Table of contents: a flat list, rows of 56 px - the chapter's number in
+      the left margin, the title, "ЧИТАЮ" on the current chapter.
+    - Shelf: the mockup's card grid (2026-11-06, was a list in R4-38) -
+      auto-fill minmax(230px, 1fr), gap 14; a card 132 px, padding 20 20 16,
+      white, a 1 px border rgba(0,0,0,.09) (hover - the accent at .5), radius
+      4; the title EB Garamond 22, "73 розд." 12 px muted, the status caps at
+      the bottom. One VST node is one row of cards; the number of columns
+      follows the width. Arrows move between cards, Enter / a click opens.
 
   Above the list - the header of the mockup: title (46 px), italic subtitle
   (17 px) and the 58 px rule. Sizes and colours from "Читання v2" (design\).
@@ -53,12 +58,25 @@ type
     FRows: TArray<TListRow>;
     FLeftPad: Integer;
     FTitlePx: Integer;
+    FCards: Boolean;                     // the shelf: a grid of cards
+    FColumns: Integer;
+    FHotCard: Integer;                   // under the mouse; -1 = none
+    FFocusCard: Integer;                 // the keyboard's card
+    FKeyboard: Boolean;                  // shown only once the arrows were used
     FTextFont: string;
     FUiFont: string;
     FOnOpen: TListOpenEvent;
     FScale: TScaleFunc;
 
     function RowOf(Node: PVirtualNode): Integer;
+    procedure LayoutCards;
+    function CardWidth: Integer;
+    function CardRect(RowTop, Column: Integer): TRect;
+    function CardAt(X, Y: Integer): Integer;
+    function NodeOfRow(Row: Integer): PVirtualNode;
+    procedure MoveCard(Delta: Integer);
+    procedure PaintCards(Canvas: TCanvas; Node: PVirtualNode; const R: TRect);
+    procedure TreeMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
     procedure Open(Node: PVirtualNode);
     procedure TreeGetText(Sender: TBaseVirtualTree; Node: PVirtualNode; Column: TColumnIndex;
       TextType: TVSTTextType; var CellText: string);
@@ -73,7 +91,9 @@ type
     constructor Create(AOwner: TComponent; AParent: TWinControl; const Scale: TScaleFunc);
     destructor Destroy; override;
 
-    procedure Show(const Title, Subtitle: string; const Rows: TArray<TListRow>);
+    // AsCards - the shelf's grid; otherwise the list of a table of contents.
+    procedure Show(const Title, Subtitle: string; const Rows: TArray<TListRow>;
+      AsCards: Boolean = False);
     // The left margin of the column (TextColumnLeft*): numbers live inside it.
     procedure SetLeftPad(Value: Integer);
     procedure ApplyFonts(const TextFont, UiFont: string);
@@ -102,6 +122,17 @@ const
   NumberPx       = 11;
   StatusPx       = 11;                   // mockup 10.5 px
   HeaderTitlePx  = 46;
+  CardMin        = 230;                  // grid-template-columns: repeat(auto-fill, minmax(230px, 1fr))
+  CardGap        = 14;
+  CardHeight     = 132;
+  CardPadX       = 20;
+  CardPadTop     = 20;
+  CardPadBottom  = 16;
+  CardRadius     = 4;
+  CardTitlePx    = 22;
+  CardMetaGap    = 8;
+  ColorCardBorder = TColor($00E5E5E5);   // rgba(0,0,0,.09) on #fcfcfc
+  ColorCardHot    = TColor($00D2B59C);   // rgba(60,110,168,.5) on #fcfcfc
   HeaderSubPx    = 17;
   RuleWidth      = 58;
   ColorRowLine   = TColor($00EBEBEB);    // rgba(0,0,0,.07) on #fcfcfc
@@ -195,7 +226,9 @@ begin
   FTree.OnAfterCellPaint := TreeAfterCellPaint;
   FTree.OnNodeClick := TreeNodeClick;
   FTree.OnKeyDown := TreeKeyDown;
+  FTree.OnMouseMove := TreeMouseMove;
   FTree.Cursor := crHandPoint;
+  FHotCard := -1;
 
   FLeftPad := 64;
   FTitlePx := HeaderTitlePx;
@@ -210,6 +243,7 @@ begin
   FTree.OnAfterCellPaint := nil;
   FTree.OnNodeClick := nil;
   FTree.OnKeyDown := nil;
+  FTree.OnMouseMove := nil;
   inherited;
 end;
 
@@ -235,6 +269,8 @@ end;
 procedure TChapterList.TreeHostResize(Sender: TObject);
 begin
   FitHidingScrollBar(FTree, FTreeHost.ClientRect);
+  if FCards then
+    LayoutCards;
 end;
 
 procedure TChapterList.SetTitlePx(Value: Integer);
@@ -257,21 +293,207 @@ begin
   FTree.Invalidate;
 end;
 
-procedure TChapterList.Show(const Title, Subtitle: string; const Rows: TArray<TListRow>);
+procedure TChapterList.Show(const Title, Subtitle: string; const Rows: TArray<TListRow>;
+  AsCards: Boolean);
 begin
   FTitle.Caption := Title;
   FSubtitle.Caption := Subtitle;
   FRows := Rows;
-  FTree.BeginUpdate;
-  try
-    FTree.Clear;
-    FTree.RootNodeCount := Length(Rows);   // row index = node index (flat list)
-  finally
-    FTree.EndUpdate;
+  FCards := AsCards;
+  FColumns := 0;
+  FHotCard := -1;
+  FFocusCard := 0;
+  FKeyboard := False;
+  if FCards then
+    LayoutCards
+  else
+  begin
+    FTree.BeginUpdate;
+    try
+      FTree.Clear;
+      FTree.DefaultNodeHeight := Px(RowHeight);
+      FTree.RootNodeCount := Length(Rows);   // row index = node index (flat list)
+    finally
+      FTree.EndUpdate;
+    end;
   end;
   FTree.OffsetY := 0;
   if FTree.RootNodeCount > 0 then
     FTree.FocusedNode := FTree.GetFirst;
+end;
+
+{ the shelf's cards }
+
+function TChapterList.CardWidth: Integer;
+begin
+  Result := (FTree.ClientWidth - FLeftPad - (FColumns - 1) * Px(CardGap)) div Max(FColumns, 1);
+end;
+
+// The number of columns follows the width; one VST node per row of cards.
+procedure TChapterList.LayoutCards;
+var
+  W, N: Integer;
+begin
+  W := FTree.ClientWidth - FLeftPad;
+  N := Max(1, (W + Px(CardGap)) div (Px(CardMin) + Px(CardGap)));
+  if N = FColumns then
+  begin
+    FTree.Invalidate;
+    Exit;
+  end;
+  FColumns := N;
+  FTree.BeginUpdate;
+  try
+    FTree.Clear;
+    FTree.DefaultNodeHeight := Px(CardHeight + CardGap);
+    FTree.RootNodeCount := (Length(FRows) + N - 1) div N;
+  finally
+    FTree.EndUpdate;
+  end;
+  if FTree.RootNodeCount > 0 then
+    FTree.FocusedNode := NodeOfRow(FFocusCard div N);
+end;
+
+function TChapterList.CardRect(RowTop, Column: Integer): TRect;
+var
+  W: Integer;
+begin
+  W := CardWidth;
+  Result.Left := FLeftPad + Column * (W + Px(CardGap));
+  Result.Top := RowTop;
+  Result.Right := Result.Left + W;
+  Result.Bottom := RowTop + Px(CardHeight);
+end;
+
+function TChapterList.CardAt(X, Y: Integer): Integer;
+var
+  Node: PVirtualNode;
+  Top, C, I: Integer;
+begin
+  Result := -1;
+  Node := FTree.GetNodeAt(X, Y);
+  if Node = nil then
+    Exit;
+  Top := FTree.GetDisplayRect(Node, NoColumn, False).Top;
+  for C := 0 to FColumns - 1 do
+  begin
+    I := Integer(Node.Index) * FColumns + C;
+    if I > High(FRows) then
+      Exit;
+    if PtInRect(CardRect(Top, C), Point(X, Y)) then
+      Exit(I);
+  end;
+end;
+
+function TChapterList.NodeOfRow(Row: Integer): PVirtualNode;
+begin
+  Result := FTree.GetFirst;
+  while (Result <> nil) and (Integer(Result.Index) <> Row) do
+    Result := FTree.GetNextSibling(Result);
+end;
+
+procedure TChapterList.MoveCard(Delta: Integer);
+var
+  Node: PVirtualNode;
+begin
+  if Length(FRows) = 0 then
+    Exit;
+  FKeyboard := True;
+  FFocusCard := EnsureRange(FFocusCard + Delta, 0, High(FRows));
+  Node := NodeOfRow(FFocusCard div Max(FColumns, 1));
+  if Node <> nil then
+  begin
+    FTree.FocusedNode := Node;
+    FTree.ScrollIntoView(Node, False);
+  end;
+  FTree.Invalidate;
+end;
+
+procedure TChapterList.TreeMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+var
+  I: Integer;
+begin
+  if not FCards then
+    Exit;
+  I := CardAt(X, Y);
+  if I <> FHotCard then
+  begin
+    FHotCard := I;
+    FTree.Invalidate;
+  end;
+end;
+
+procedure TChapterList.PaintCards(Canvas: TCanvas; Node: PVirtualNode; const R: TRect);
+var
+  C, I, LineH: Integer;
+  B, TextR, CalcR: TRect;
+  Row: TListRow;
+  Hot: Boolean;
+  TM: TTextMetric;
+  S: string;
+
+  procedure UseFont(const Name: string; HeightPx: Integer; Color: TColor);
+  begin
+    Canvas.Font.Name := Name;
+    Canvas.Font.Height := -Px(HeightPx);
+    Canvas.Font.Color := Color;
+    Canvas.Font.Style := [];
+    SetTextCharacterExtra(Canvas.Handle, 0);
+  end;
+
+begin
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Brush.Color := ColorBackground;
+  Canvas.FillRect(R);
+  for C := 0 to FColumns - 1 do
+  begin
+    I := Integer(Node.Index) * FColumns + C;
+    if I > High(FRows) then
+      Break;
+    Row := FRows[I];
+    B := CardRect(R.Top, C);
+    // The mouse's card, or the keyboard's while the list has the focus.
+    Hot := ((I = FHotCard) and (FTree.HotNode <> nil)) or
+      ((I = FFocusCard) and FTree.Focused and FKeyboard);
+    if Hot then
+      PaintRoundRect(Canvas, B, Px(CardRadius), clWhite, ColorCardHot)
+    else
+      PaintRoundRect(Canvas, B, Px(CardRadius), clWhite, ColorCardBorder);
+    Canvas.Brush.Style := bsClear;
+
+    // The title: up to two lines, wrapped by words, an ellipsis after.
+    UseFont(FTextFont, CardTitlePx, ColorText);
+    GetTextMetrics(Canvas.Handle, TM);
+    LineH := TM.tmHeight;
+    TextR := Rect(B.Left + Px(CardPadX), B.Top + Px(CardPadTop), B.Right - Px(CardPadX),
+      B.Top + Px(CardPadTop) + 2 * LineH);
+    CalcR := TextR;
+    Winapi.Windows.DrawText(Canvas.Handle, PChar(Row.Title), Length(Row.Title), CalcR,
+      DT_CALCRECT or DT_WORDBREAK or DT_NOPREFIX);
+    TextR.Bottom := TextR.Top + Min(CalcR.Height, 2 * LineH);
+    Winapi.Windows.DrawText(Canvas.Handle, PChar(Row.Title), Length(Row.Title), TextR,
+      DT_WORDBREAK or DT_EDITCONTROL or DT_END_ELLIPSIS or DT_NOPREFIX);
+
+    // "73 розд." 12 px muted, 8 px under the title.
+    UseFont(FUiFont, MetaPx, ColorMuted);
+    TextR := Rect(TextR.Left, TextR.Bottom + Px(CardMetaGap), TextR.Right,
+      TextR.Bottom + Px(CardMetaGap) + Canvas.TextHeight('Ag'));
+    Winapi.Windows.DrawText(Canvas.Handle, PChar(Row.Meta), Length(Row.Meta), TextR,
+      DT_SINGLELINE or DT_TOP or DT_LEFT or DT_NOPREFIX or DT_END_ELLIPSIS);
+
+    // The status at the bottom: caps 10.5 px, .08em, the accent.
+    if Row.Status <> '' then
+    begin
+      UseFont(FUiFont, StatusPx, ColorAccent);
+      SetTextCharacterExtra(Canvas.Handle, Round(Px(StatusPx) * 0.08));
+      S := Row.Status.ToUpper;
+      TextR := Rect(B.Left + Px(CardPadX), B.Bottom - Px(CardPadBottom) - Canvas.TextHeight('Ag'),
+        B.Right - Px(CardPadX), B.Bottom - Px(CardPadBottom));
+      Winapi.Windows.DrawText(Canvas.Handle, PChar(S), Length(S), TextR,
+        DT_SINGLELINE or DT_TOP or DT_LEFT or DT_NOPREFIX);
+      SetTextCharacterExtra(Canvas.Handle, 0);
+    end;
+  end;
 end;
 
 procedure TChapterList.FocusList;
@@ -326,6 +548,11 @@ begin
     Exit;
   Row := FRows[Index];
   R := Rect(0, CellRect.Top, Sender.ClientWidth, CellRect.Bottom);
+  if FCards then
+  begin
+    PaintCards(TargetCanvas, Node, R);
+    Exit;
+  end;
   Hot := (Node = Sender.HotNode) or ((Node = Sender.FocusedNode) and Sender.Focused);
 
   // Background over whatever VST painted (selection is hidden anyway).
@@ -400,12 +627,42 @@ begin
 end;
 
 procedure TChapterList.TreeNodeClick(Sender: TBaseVirtualTree; const HitInfo: THitInfo);
+var
+  P: TPoint;
+  I: Integer;
 begin
+  if FCards then
+  begin
+    P := FTree.ScreenToClient(Mouse.CursorPos);
+    I := CardAt(P.X, P.Y);
+    if (I >= 0) and Assigned(FOnOpen) then
+    begin
+      FFocusCard := I;
+      FOnOpen(FRows[I].NodeIndex);
+    end;
+    Exit;
+  end;
   Open(HitInfo.HitNode);
 end;
 
 procedure TChapterList.TreeKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
 begin
+  if FCards then
+  begin
+    case Key of
+      vkLeft:   MoveCard(-1);
+      vkRight:  MoveCard(1);
+      vkUp:     MoveCard(-FColumns);
+      vkDown:   MoveCard(FColumns);
+      vkReturn:
+        if (FFocusCard <= High(FRows)) and Assigned(FOnOpen) then
+          FOnOpen(FRows[FFocusCard].NodeIndex);
+    else
+      Exit;
+    end;
+    Key := 0;
+    Exit;
+  end;
   if (Key = vkReturn) and (FTree.FocusedNode <> nil) then
   begin
     Open(FTree.FocusedNode);

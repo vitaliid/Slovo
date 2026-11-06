@@ -1458,7 +1458,7 @@ begin
     Title := L(CategoryKeys[FViewModel.ShelfCategory]);
     Subtitle := L('shelf.booksCount', [Length(Rows)]);
   end;
-  FChapterList.Show(Title, Subtitle, Rows);
+  FChapterList.Show(Title, Subtitle, Rows, True);   // the mockup's cards
 end;
 
 procedure TMainForm.FillToc;
