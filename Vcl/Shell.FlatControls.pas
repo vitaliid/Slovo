@@ -591,7 +591,9 @@ constructor TFlatCheckBox.Create(AOwner: TComponent; const Scale: TFlatScaleFunc
 begin
   inherited Create(AOwner);
   FScale := Scale;
-  ControlStyle := ControlStyle + [csOpaque] - [csDoubleClicks];
+  // No csClickEvents: Toggle clicks on mouse down; VCL's own Click on mouse up
+  // fired OnClick a second time.
+  ControlStyle := ControlStyle + [csOpaque] - [csDoubleClicks, csClickEvents];
   DoubleBuffered := True;
   TabStop := True;
   Color := ColorBackground;
@@ -789,6 +791,9 @@ begin
   Brush := TGPSolidBrush.Create(ToArgb(Color));
   try
     G.SetSmoothingMode(SmoothingModeAntiAlias);
+    // The browser's pixel model: pixel i covers [i, i+1]. With GDI+'s default
+    // a 1.5 px line on a whole coordinate came out a thin 1 px (the burger).
+    G.SetPixelOffsetMode(PixelOffsetModeHalf);
     Pen.SetStartCap(LineCapRound);
     Pen.SetEndCap(LineCapRound);
     case Glyph of

@@ -227,6 +227,7 @@ type
     procedure SetSilence(Value: Boolean);
     procedure SilenceButtonClick(Sender: TObject);
     procedure ScopeChanged(Sender: TObject);
+    procedure SearchOptionClick(Sender: TObject);
     procedure FormResized(Sender: TObject);
     procedure AppMessage(var Msg: TMsg; var Handled: Boolean);
 
@@ -416,6 +417,8 @@ begin
   OnKeyPress := FormKeyPress;
   OnResize := FormResized;
   FScope.OnChange := ScopeChanged;
+  FExactPhrase.OnClick := SearchOptionClick;
+  FWordForms.OnClick := SearchOptionClick;
   FAppEvents := TApplicationEvents.Create(Self);
   FAppEvents.OnMessage := AppMessage;
 
@@ -594,8 +597,11 @@ begin
 end;
 
 // A.5: "Відмічені книги" opens the left panel - the check boxes are there.
+// The scope and the options are kept at once, not only by a search (Vitalii,
+// 2026-11-06: switched and closed - the choice was lost).
 procedure TMainForm.ScopeChanged(Sender: TObject);
 begin
+  FSettings.SetSearchWholeLibrary(FScope.WholeLibrary);
   if not FScope.WholeLibrary and not FLeftPanel.Visible then
     SetLeftWanted(True);
 end;
@@ -661,6 +667,12 @@ begin
   // surplus, so the text stays under the crumbs at FLeftPad.
   Shift := FLeftPad - Round(ScaleValue(TextMarkerMargin) * ZoomPx(FZoomStep) / BaseTextPx);
   FitHidingScrollBar(redReader, Rect(Shift, 0, FReaderHost.ClientWidth, FReaderHost.ClientHeight));
+end;
+
+procedure TMainForm.SearchOptionClick(Sender: TObject);
+begin
+  FSettings.SetExactPhrase(FExactPhrase.Checked);
+  FSettings.SetWordForms(FWordForms.Checked);
 end;
 
 procedure TMainForm.FormResized(Sender: TObject);

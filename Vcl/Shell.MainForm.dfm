@@ -47,20 +47,27 @@ object MainForm: TMainForm
         Align = alTop
         BevelOuter = bvNone
         ParentBackground = False
-        TabOrder = 3
+        TabOrder = 1
       end
       object redReader: TRichEdit
         Left = 0
-        Top = 47
+        Top = 106
         Width = 724
-        Height = 641
+        Height = 582
         Align = alClient
         BorderStyle = bsNone
+        Font.Charset = RUSSIAN_CHARSET
+        Font.Color = clWindowText
+        Font.Height = -12
+        Font.Name = 'Segoe UI'
+        Font.Style = []
         HideSelection = False
+        ParentFont = False
         ReadOnly = True
         ScrollBars = ssVertical
         TabOrder = 0
         WantReturns = False
+        ExplicitTop = 109
       end
       object pnlChapterNav: TPanel
         Left = 0
