@@ -1030,9 +1030,10 @@ begin
   FResultsHost.Top := Order * 1000 + 1000;           // after the alTop rows
   FResultsHost.Align := alClient;
   FResultsHost.AlignWithMargins := True;
-  // Mockup aside padding 22 (the rows' own padding 13 inside); 60 at the bottom
-  // is the list's BottomSpace.
-  FResultsHost.Margins.SetBounds(ScaleValue(22), 0, ScaleValue(22), 0);
+  // Mockup aside padding 22; the rows keep 8 of it inside (the accent bar 2 +
+  // padding 6), so their text stands on the panel's left edge with the captions
+  // above. 60 at the bottom is the list's BottomSpace.
+  FResultsHost.Margins.SetBounds(ScaleValue(14), 0, ScaleValue(22), 0);
   FResultsHost.BevelOuter := bvNone;
   FResultsHost.ParentBackground := False;
   FResultsHost.Color := ColorBackground;

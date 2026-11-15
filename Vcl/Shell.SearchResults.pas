@@ -4,9 +4,9 @@
   E-19, E-20; B-34).
 
   One VirtualStringTree over a TSearchResultsModel (Presentation.SearchResults):
-    section "Книги" / "Біблія"        - a root node with the expand button;
-    block (a book, a translation)     - a node with the button, its caption and
-                                        the number of its matches;
+    section "Книги" / "Біблія"        - a root node: its caption, the number of
+                                        its matches and a chevron on the right;
+    block (a book, a translation)     - the same: caption, number, chevron;
     heading (a chapter, a Bible book) - a row that does not fold;
     match                             - the reference line (10.5 px, muted) and
                                         the snippet in two lines of EB Garamond
@@ -16,8 +16,12 @@
   line; the page "71.2" / the verse "22:8" stands small on the right. When the
   match itself would not fit on the line, the words before it give way.
 
-  The rows of a block stand in line with its caption, the rows of a flat
-  section - with the section's caption: nothing is left of its parent.
+  Everything starts at one left edge (Vitalii, 2026-11-16, option "Б"): no
+  indent and no expand buttons on the left, so a snippet has the whole width.
+  The levels are told apart by type - the section in small caps, the book in
+  medium, the chapter small and muted, the snippet in the text font. A section
+  and a block fold by a click anywhere on their row; the chevron on the right
+  (down - open, right - folded) says so.
   A block without a caption (the books by relevance) has no node: its rows
   stand right under the section.
 
@@ -173,7 +177,8 @@ const
   BottomPadding = 60;     // aside padding-bottom
   HeaderHeight  = 30;
   HeadingHeight = 24;     // a chapter / a Bible book over its matches
-  RowPadX       = 13;
+  RowPadX       = 6;      // 13 in the mockup; narrower since everything shares one left edge
+  ChevronZone   = 14;     // the chevron of a section / a block, on the right
   RowPadY       = 6;
   RefLine       = 14;     // the reference line
   RefSnippetGap = 2;
@@ -210,14 +215,16 @@ begin
   // toAutoChangeScale would reset row heights to the font height (see Shell.ChapterList).
   FTree.TreeOptions.AutoOptions := FTree.TreeOptions.AutoOptions - [toAutoChangeScale];
   FTree.DefaultNodeHeight := Px(HeaderHeight);
-  FTree.Indent := Px(14);
+  FTree.Indent := 0;                         // one left edge for all levels
   FTree.Margin := 0;
   FTree.TextMargin := 0;
   FTree.TreeOptions.PaintOptions := FTree.TreeOptions.PaintOptions
     - [toShowTreeLines, toUseExplorerTheme]
-    + [toShowRoot, toShowButtons, toHideFocusRect, toHotTrack, toAlwaysHideSelection];
+    - [toShowRoot, toShowButtons]
+    + [toHideFocusRect, toHotTrack, toAlwaysHideSelection];
   FTree.TreeOptions.SelectionOptions := FTree.TreeOptions.SelectionOptions + [toFullRowSelect];
-  FTree.TreeOptions.MiscOptions := FTree.TreeOptions.MiscOptions - [toEditable];
+  // A click folds a section / a block; a double click must not fold it back.
+  FTree.TreeOptions.MiscOptions := FTree.TreeOptions.MiscOptions - [toEditable, toToggleOnDblClick];
   FTree.OnInitNode := TreeInitNode;
   FTree.OnInitChildren := TreeInitChildren;
   FTree.OnGetText := TreeGetText;
@@ -647,6 +654,7 @@ var
   Text, Count: string;
   Line: TResultLine;
   W, I, Total: Integer;
+  Mid: TPoint;
 begin
   Data := Sender.GetNodeData(Node);
   if (Data = nil) or (FModel = nil) or (Data.Part > High(FModel.Parts)) then
@@ -673,8 +681,25 @@ begin
   case Data.Kind of
     nkSection, nkBlock:
       begin
+        // The whole row is the button: a hover box as on a match, and the
+        // chevron on the right - down when open, right when folded.
+        if Hot then
+          PaintRoundRect(TargetCanvas, Rect(R.Left, R.Top + Px(1), R.Right, R.Bottom - Px(1)),
+            Px(RowRadius) - Px(2), ColorRowHover, clNone);
+        Mid := Point(R.Right - Px(RowPadX) - Px(ChevronZone) div 2 + Px(3), (R.Top + R.Bottom) div 2);
+        TargetCanvas.Pen.Style := psSolid;
+        TargetCanvas.Pen.Color := ColorMarker;
+        TargetCanvas.Brush.Style := bsSolid;
+        TargetCanvas.Brush.Color := ColorMarker;
+        if Sender.Expanded[Node] then
+          TargetCanvas.Polygon([Point(Mid.X - Px(4), Mid.Y - Px(2)), Point(Mid.X + Px(4), Mid.Y - Px(2)),
+            Point(Mid.X, Mid.Y + Px(2))])
+        else
+          TargetCanvas.Polygon([Point(Mid.X - Px(2), Mid.Y - Px(4)), Point(Mid.X - Px(2), Mid.Y + Px(4)),
+            Point(Mid.X + Px(2), Mid.Y)]);
         TargetCanvas.Brush.Style := bsClear;
-        TextR := Rect(R.Left + Px(2), R.Top, R.Right - Px(4), R.Bottom);
+        TextR := Rect(R.Left + Px(AccentWidth + RowPadX), R.Top,
+          R.Right - Px(RowPadX) - Px(ChevronZone), R.Bottom);
         // The number of matches on the right: of the book / translation, and of
         // the whole section (Vitalii, 2026-11-16).
         Total := 0;
@@ -1035,17 +1060,30 @@ begin
 end;
 
 procedure TSearchResultList.TreeNodeClick(Sender: TBaseVirtualTree; const HitInfo: THitInfo);
+var
+  Data: PNodeData;
 begin
-  if hiOnItemButton in HitInfo.HitPositions then
-    Exit;                                    // the expand button only toggles
-  Open(HitInfo.HitNode);
+  // A section / a block folds by a click anywhere on its row.
+  if HitInfo.HitNode = nil then
+    Exit;
+  Data := Sender.GetNodeData(HitInfo.HitNode);
+  if (Data <> nil) and (Data.Kind in [nkSection, nkBlock]) then
+    Sender.ToggleNode(HitInfo.HitNode)
+  else
+    Open(HitInfo.HitNode);
 end;
 
 procedure TSearchResultList.TreeKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+var
+  Data: PNodeData;
 begin
   if (Key = vkReturn) and (FTree.FocusedNode <> nil) then
   begin
-    Open(FTree.FocusedNode);
+    Data := FTree.GetNodeData(FTree.FocusedNode);
+    if (Data <> nil) and (Data.Kind in [nkSection, nkBlock]) then
+      FTree.ToggleNode(FTree.FocusedNode)
+    else
+      Open(FTree.FocusedNode);
     Key := 0;
   end;
 end;
