@@ -8,9 +8,12 @@
                          language among the modules in scope. A language without
                          a stemmed table silently falls back to the exact table
                          (logged once per session).
-  Groups come back one after another in the order uk, ru, en, then the rest by
-  code; each group is in bm25 order of its own table (ranks of different tables
-  are not comparable). LIMIT MaxResults + 1 per group -> Truncated.
+  Two steps, no limit (B-34):
+    Count*  - COUNT(*) GROUP BY chapter / Bible book over all matches, one query
+              per table (language group), the rows of all groups in one array;
+    Search* - one window LIMIT / OFFSET in text order or by bm25. Its modules
+              must belong to one table: ranks of different tables are not
+              comparable and an offset has no meaning across them.
 
   Matches are marked with char(2)/char(3) by snippet()/highlight() and cut out
   here, so offsets are UTF-16 code units of the clean text (B-24). Synchronous,
@@ -65,12 +68,17 @@ type
     function ModuleLanguage(const Id: TModuleId; out Module: TModule): Boolean;
     class function LanguageRank(const Language: string): Integer; static;
     class function InClause(Count, FirstParam: Integer): string; static;
+    // The one table of a window; False = Error (reNone: nothing to search in).
+    function PlanWindow(Kind: TContentKind; const Query: TSearchQuery; const Window: TSearchWindow;
+      out Group: TSearchGroup; out Error: TResultError): Boolean;
   public
     constructor Create(ADatabase: TLibraryDatabase; ACatalog: TLibraryCatalog; const ALogger: ILogger);
     destructor Destroy; override;
 
-    function SearchBook(const Query: TSearchQuery): TResult<TSearchPage<TBookSearchResult>>;
-    function SearchBible(const Query: TSearchQuery): TResult<TSearchPage<TBibleSearchResult>>;
+    function CountBook(const Query: TSearchQuery): TResult<TArray<TBookHitCount>>;
+    function CountBible(const Query: TSearchQuery): TResult<TArray<TBibleHitCount>>;
+    function SearchBook(const Query: TSearchQuery; const Window: TSearchWindow): TResult<TArray<TBookSearchResult>>;
+    function SearchBible(const Query: TSearchQuery; const Window: TSearchWindow): TResult<TArray<TBibleSearchResult>>;
     function FindInChapter(const Query: TSearchQuery; const Ref: TChapterRef): TResult<TArray<TParagraphHit>>;
     function FindInBibleChapter(const Query: TSearchQuery; const Ref: TBibleChapterRef): TResult<TArray<TVerseHit>>;
   end;
@@ -166,13 +174,6 @@ begin
     Result := mmExactPhrase
   else
     Result := mmAllWords;
-end;
-
-function NormalizedLimit(const Query: TSearchQuery): Integer;
-begin
-  Result := Query.MaxResults;
-  if Result <= 0 then
-    Result := DefaultMaxResults;
 end;
 
 { TFts5SearchIndex }
@@ -342,128 +343,263 @@ begin
   end;
 end;
 
-function TFts5SearchIndex.SearchBook(const Query: TSearchQuery): TResult<TSearchPage<TBookSearchResult>>;
+function TFts5SearchIndex.CountBook(const Query: TSearchQuery): TResult<TArray<TBookHitCount>>;
 var
   MatchExpr, SQL: string;
-  Page: TSearchPage<TBookSearchResult>;
-  Limit, Rows, I: Integer;
+  Counts: TArray<TBookHitCount>;
+  I: Integer;
   G: TSearchGroup;
   Stmt: TSQLiteStatement;
-  Item: TBookSearchResult;
+  Item: TBookHitCount;
 begin
-  Page := Default(TSearchPage<TBookSearchResult>);
+  Counts := nil;
   if not TryBuildMatchQuery(Query.Text, MatchModeOf(Query), MatchExpr) then
-    Exit(TResult<TSearchPage<TBookSearchResult>>.Success(Page));
-  Limit := NormalizedLimit(Query);
+    Exit(TResult<TArray<TBookHitCount>>.Success(Counts));
   try
     for G in PlanGroups(ckBook, Query) do
     begin
       // G.Table is one of our own fixed names (TableFor), never user input.
       SQL := Format(
-        'SELECT p.ModuleId, p.ChapterOrder, p.LogicalIndex, p.StartPageNumber, p.ParagraphOnPage, ' +
-        'snippet(%0:s, 0, char(2), char(3), ''…'', %1:d) ' +
+        'SELECT p.ModuleId, p.ChapterOrder, COUNT(*) ' +
         'FROM %0:s JOIN Paragraphs p ON p.Id = %0:s.rowid ' +
-        'WHERE %0:s MATCH ?1', [G.Table, SnippetTokens]);
+        'WHERE %0:s MATCH ?1', [G.Table]);
       if Length(G.ModuleIds) > 0 then
         SQL := SQL + ' AND p.ModuleId ' + InClause(Length(G.ModuleIds), 2);
-      SQL := SQL + Format(' ORDER BY rank LIMIT ?%d;', [Length(G.ModuleIds) + 2]);
+      SQL := SQL + ' GROUP BY p.ModuleId, p.ChapterOrder ORDER BY p.ModuleId, p.ChapterOrder;';
 
       Stmt := FDatabase.Connection.Prepare(SQL);
       try
         Stmt.BindText(1, MatchExpr);
         for I := 0 to High(G.ModuleIds) do
           Stmt.BindText(I + 2, G.ModuleIds[I]);
-        Stmt.BindInt(Length(G.ModuleIds) + 2, Limit + 1);
-        Rows := 0;
         while Stmt.Step do
         begin
-          Inc(Rows);
-          if Rows > Limit then
-          begin
-            Page.Truncated := True;
-            Break;
-          end;
-          Item := Default(TBookSearchResult);
-          Item.Ref.Chapter.ModuleId := Stmt.ColumnText(0);
-          Item.Ref.Chapter.ChapterOrder := Stmt.ColumnInt(1);
-          Item.Ref.LogicalIndex := Stmt.ColumnInt(2);
-          Item.PageNumber := Stmt.ColumnInt(3);
-          Item.ParagraphOnPage := Stmt.ColumnInt(4);
-          Item.Highlights := ExtractHighlights(Stmt.ColumnText(5), Item.Snippet);
-          Page.Items := Page.Items + [Item];
+          Item.ModuleId := Stmt.ColumnText(0);
+          Item.ChapterOrder := Stmt.ColumnInt(1);
+          Item.Count := Stmt.ColumnInt(2);
+          Counts := Counts + [Item];
         end;
       finally
         Stmt.Free;
       end;
     end;
-    Result := TResult<TSearchPage<TBookSearchResult>>.Success(Page);
+    Result := TResult<TArray<TBookHitCount>>.Success(Counts);
   except
     on E: Exception do
     begin
-      FLogger.LogError('Search', Format('SearchBook "%s": %s: %s', [Query.Text, E.ClassName, E.Message]));
-      Result := TResult<TSearchPage<TBookSearchResult>>.Failure(SQLiteErrorToResult(E));
+      FLogger.LogError('Search', Format('CountBook "%s": %s: %s', [Query.Text, E.ClassName, E.Message]));
+      Result := TResult<TArray<TBookHitCount>>.Failure(SQLiteErrorToResult(E));
     end;
   end;
 end;
 
-function TFts5SearchIndex.SearchBible(const Query: TSearchQuery): TResult<TSearchPage<TBibleSearchResult>>;
+function TFts5SearchIndex.CountBible(const Query: TSearchQuery): TResult<TArray<TBibleHitCount>>;
 var
   MatchExpr, SQL: string;
-  Page: TSearchPage<TBibleSearchResult>;
-  Limit, Rows, I: Integer;
+  Counts: TArray<TBibleHitCount>;
+  I: Integer;
   G: TSearchGroup;
   Stmt: TSQLiteStatement;
-  Item: TBibleSearchResult;
+  Item: TBibleHitCount;
 begin
-  Page := Default(TSearchPage<TBibleSearchResult>);
+  Counts := nil;
   if not TryBuildMatchQuery(Query.Text, MatchModeOf(Query), MatchExpr) then
-    Exit(TResult<TSearchPage<TBibleSearchResult>>.Success(Page));
-  Limit := NormalizedLimit(Query);
+    Exit(TResult<TArray<TBibleHitCount>>.Success(Counts));
   try
     for G in PlanGroups(ckBibleTranslation, Query) do
     begin
       SQL := Format(
-        'SELECT v.ModuleId, v.BookCode, v.ChapterNumber, v.VerseNumber, ' +
-        'snippet(%0:s, 0, char(2), char(3), ''…'', %1:d) ' +
+        'SELECT v.ModuleId, v.BookCode, COUNT(*) ' +
         'FROM %0:s JOIN Verses v ON v.Id = %0:s.rowid ' +
-        'WHERE %0:s MATCH ?1', [G.Table, SnippetTokens]);
+        'JOIN Books b ON b.ModuleId = v.ModuleId AND b.BookCode = v.BookCode ' +
+        'WHERE %0:s MATCH ?1', [G.Table]);
       if Length(G.ModuleIds) > 0 then
         SQL := SQL + ' AND v.ModuleId ' + InClause(Length(G.ModuleIds), 2);
-      SQL := SQL + Format(' ORDER BY rank LIMIT ?%d;', [Length(G.ModuleIds) + 2]);
+      SQL := SQL + ' GROUP BY v.ModuleId, v.BookCode ORDER BY v.ModuleId, b.OrderInModule;';
 
       Stmt := FDatabase.Connection.Prepare(SQL);
       try
         Stmt.BindText(1, MatchExpr);
         for I := 0 to High(G.ModuleIds) do
           Stmt.BindText(I + 2, G.ModuleIds[I]);
-        Stmt.BindInt(Length(G.ModuleIds) + 2, Limit + 1);
-        Rows := 0;
         while Stmt.Step do
         begin
-          Inc(Rows);
-          if Rows > Limit then
-          begin
-            Page.Truncated := True;
-            Break;
-          end;
-          Item := Default(TBibleSearchResult);
-          Item.Ref.Chapter.Book.ModuleId := Stmt.ColumnText(0);
-          Item.Ref.Chapter.Book.BookCode := Stmt.ColumnText(1);
-          Item.Ref.Chapter.ChapterNumber := Stmt.ColumnInt(2);
-          Item.Ref.VerseNumber := Stmt.ColumnInt(3);
-          Item.Highlights := ExtractHighlights(Stmt.ColumnText(4), Item.Snippet);
-          Page.Items := Page.Items + [Item];
+          Item.ModuleId := Stmt.ColumnText(0);
+          Item.BookCode := Stmt.ColumnText(1);
+          Item.Count := Stmt.ColumnInt(2);
+          Counts := Counts + [Item];
         end;
       finally
         Stmt.Free;
       end;
     end;
-    Result := TResult<TSearchPage<TBibleSearchResult>>.Success(Page);
+    Result := TResult<TArray<TBibleHitCount>>.Success(Counts);
+  except
+    on E: Exception do
+    begin
+      FLogger.LogError('Search', Format('CountBible "%s": %s: %s', [Query.Text, E.ClassName, E.Message]));
+      Result := TResult<TArray<TBibleHitCount>>.Failure(SQLiteErrorToResult(E));
+    end;
+  end;
+end;
+
+// A window is one query on one table. No modules of this kind in the scope is
+// not an error - there is nothing to search in (Error = reNone).
+function TFts5SearchIndex.PlanWindow(Kind: TContentKind; const Query: TSearchQuery;
+  const Window: TSearchWindow; out Group: TSearchGroup; out Error: TResultError): Boolean;
+var
+  Groups: TArray<TSearchGroup>;
+begin
+  Group := Default(TSearchGroup);
+  Error := reNone;
+  Result := False;
+  if (Length(Query.ModuleIds) = 0) or (Window.Offset < 0) then
+  begin
+    Error := reInvalidQuery;
+    FLogger.LogError('Search', 'A window of results needs its modules and a non-negative offset');
+    Exit;
+  end;
+  Groups := PlanGroups(Kind, Query);
+  if Length(Groups) = 0 then
+    Exit;
+  if Length(Groups) > 1 then
+  begin
+    Error := reInvalidQuery;
+    FLogger.LogError('Search', Format(
+      'A window of results over %d tables (%s, %s, ...): its modules must share one',
+      [Length(Groups), Groups[0].Table, Groups[1].Table]));
+    Exit;
+  end;
+  Group := Groups[0];
+  Result := True;
+end;
+
+function TFts5SearchIndex.SearchBook(const Query: TSearchQuery;
+  const Window: TSearchWindow): TResult<TArray<TBookSearchResult>>;
+var
+  MatchExpr, SQL: string;
+  Items: TArray<TBookSearchResult>;
+  I, N: Integer;
+  G: TSearchGroup;
+  Error: TResultError;
+  Stmt: TSQLiteStatement;
+  Item: TBookSearchResult;
+begin
+  Items := nil;
+  if (Window.Count <= 0) or not TryBuildMatchQuery(Query.Text, MatchModeOf(Query), MatchExpr) then
+    Exit(TResult<TArray<TBookSearchResult>>.Success(Items));
+  try
+    if not PlanWindow(ckBook, Query, Window, G, Error) then
+    begin
+      if Error = reNone then
+        Exit(TResult<TArray<TBookSearchResult>>.Success(Items));
+      Exit(TResult<TArray<TBookSearchResult>>.Failure(Error));
+    end;
+    N := Length(G.ModuleIds);
+    // G.Table is one of our own fixed names (TableFor), never user input.
+    SQL := Format(
+      'SELECT p.ModuleId, p.ChapterOrder, p.LogicalIndex, p.StartPageNumber, p.ParagraphOnPage, ' +
+      'snippet(%0:s, 0, char(2), char(3), ''…'', %1:d) ' +
+      'FROM %0:s JOIN Paragraphs p ON p.Id = %0:s.rowid ' +
+      'WHERE %0:s MATCH ?1 AND p.ModuleId ', [G.Table, SnippetTokens]) + InClause(N, 2);
+    // The rowid breaks ties of equal ranks: windows must not overlap or skip rows.
+    if Window.Order = soRelevance then
+      SQL := SQL + Format(' ORDER BY rank, %s.rowid', [G.Table])
+    else
+      SQL := SQL + ' ORDER BY p.ModuleId, p.ChapterOrder, p.LogicalIndex';
+    SQL := SQL + Format(' LIMIT ?%d OFFSET ?%d;', [N + 2, N + 3]);
+
+    Stmt := FDatabase.Connection.Prepare(SQL);
+    try
+      Stmt.BindText(1, MatchExpr);
+      for I := 0 to N - 1 do
+        Stmt.BindText(I + 2, G.ModuleIds[I]);
+      Stmt.BindInt(N + 2, Window.Count);
+      Stmt.BindInt(N + 3, Window.Offset);
+      while Stmt.Step do
+      begin
+        Item := Default(TBookSearchResult);
+        Item.Ref.Chapter.ModuleId := Stmt.ColumnText(0);
+        Item.Ref.Chapter.ChapterOrder := Stmt.ColumnInt(1);
+        Item.Ref.LogicalIndex := Stmt.ColumnInt(2);
+        Item.PageNumber := Stmt.ColumnInt(3);
+        Item.ParagraphOnPage := Stmt.ColumnInt(4);
+        Item.Highlights := ExtractHighlights(Stmt.ColumnText(5), Item.Snippet);
+        Items := Items + [Item];
+      end;
+    finally
+      Stmt.Free;
+    end;
+    Result := TResult<TArray<TBookSearchResult>>.Success(Items);
+  except
+    on E: Exception do
+    begin
+      FLogger.LogError('Search', Format('SearchBook "%s": %s: %s', [Query.Text, E.ClassName, E.Message]));
+      Result := TResult<TArray<TBookSearchResult>>.Failure(SQLiteErrorToResult(E));
+    end;
+  end;
+end;
+
+function TFts5SearchIndex.SearchBible(const Query: TSearchQuery;
+  const Window: TSearchWindow): TResult<TArray<TBibleSearchResult>>;
+var
+  MatchExpr, SQL: string;
+  Items: TArray<TBibleSearchResult>;
+  I, N: Integer;
+  G: TSearchGroup;
+  Error: TResultError;
+  Stmt: TSQLiteStatement;
+  Item: TBibleSearchResult;
+begin
+  Items := nil;
+  if (Window.Count <= 0) or not TryBuildMatchQuery(Query.Text, MatchModeOf(Query), MatchExpr) then
+    Exit(TResult<TArray<TBibleSearchResult>>.Success(Items));
+  try
+    if not PlanWindow(ckBibleTranslation, Query, Window, G, Error) then
+    begin
+      if Error = reNone then
+        Exit(TResult<TArray<TBibleSearchResult>>.Success(Items));
+      Exit(TResult<TArray<TBibleSearchResult>>.Failure(Error));
+    end;
+    N := Length(G.ModuleIds);
+    SQL := Format(
+      'SELECT v.ModuleId, v.BookCode, v.ChapterNumber, v.VerseNumber, ' +
+      'snippet(%0:s, 0, char(2), char(3), ''…'', %1:d) ' +
+      'FROM %0:s JOIN Verses v ON v.Id = %0:s.rowid ' +
+      'JOIN Books b ON b.ModuleId = v.ModuleId AND b.BookCode = v.BookCode ' +
+      'WHERE %0:s MATCH ?1 AND v.ModuleId ', [G.Table, SnippetTokens]) + InClause(N, 2);
+    if Window.Order = soRelevance then
+      SQL := SQL + Format(' ORDER BY rank, %s.rowid', [G.Table])
+    else
+      SQL := SQL + ' ORDER BY v.ModuleId, b.OrderInModule, v.ChapterNumber, v.VerseNumber';
+    SQL := SQL + Format(' LIMIT ?%d OFFSET ?%d;', [N + 2, N + 3]);
+
+    Stmt := FDatabase.Connection.Prepare(SQL);
+    try
+      Stmt.BindText(1, MatchExpr);
+      for I := 0 to N - 1 do
+        Stmt.BindText(I + 2, G.ModuleIds[I]);
+      Stmt.BindInt(N + 2, Window.Count);
+      Stmt.BindInt(N + 3, Window.Offset);
+      while Stmt.Step do
+      begin
+        Item := Default(TBibleSearchResult);
+        Item.Ref.Chapter.Book.ModuleId := Stmt.ColumnText(0);
+        Item.Ref.Chapter.Book.BookCode := Stmt.ColumnText(1);
+        Item.Ref.Chapter.ChapterNumber := Stmt.ColumnInt(2);
+        Item.Ref.VerseNumber := Stmt.ColumnInt(3);
+        Item.Highlights := ExtractHighlights(Stmt.ColumnText(4), Item.Snippet);
+        Items := Items + [Item];
+      end;
+    finally
+      Stmt.Free;
+    end;
+    Result := TResult<TArray<TBibleSearchResult>>.Success(Items);
   except
     on E: Exception do
     begin
       FLogger.LogError('Search', Format('SearchBible "%s": %s: %s', [Query.Text, E.ClassName, E.Message]));
-      Result := TResult<TSearchPage<TBibleSearchResult>>.Failure(SQLiteErrorToResult(E));
+      Result := TResult<TArray<TBibleSearchResult>>.Failure(SQLiteErrorToResult(E));
     end;
   end;
 end;

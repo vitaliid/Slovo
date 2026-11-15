@@ -24,10 +24,17 @@ type
   // Synchronous (C-08, C-21). CountPrefix is deliberately absent until Sprint 3.
   ISearchIndex = interface
     ['{0B1B7C4E-6C2A-4D0E-9C1F-2A5D3E7B4A11}']
-    function SearchBook(const Query: TSearchQuery): TResult<TSearchPage<TBookSearchResult>>;
-    function SearchBible(const Query: TSearchQuery): TResult<TSearchPage<TBibleSearchResult>>;
-    // E-08: same MATCH and table, limited to one chapter. Query.ModuleIds and
-    // MaxResults are ignored - the module comes from Ref.
+    // B-34, step 1: how many matches every chapter / Bible book has - over ALL
+    // matches of the scope, no snippets. Query.ModuleIds: empty = the whole library.
+    function CountBook(const Query: TSearchQuery): TResult<TArray<TBookHitCount>>;
+    function CountBible(const Query: TSearchQuery): TResult<TArray<TBibleHitCount>>;
+    // B-34, step 2: a window of rows with snippets. Query.ModuleIds is NOT empty
+    // here and all its modules belong to one FTS table (one language, B-31):
+    // ranks and Offset mean something only inside one table. Otherwise reInvalidQuery.
+    function SearchBook(const Query: TSearchQuery; const Window: TSearchWindow): TResult<TArray<TBookSearchResult>>;
+    function SearchBible(const Query: TSearchQuery; const Window: TSearchWindow): TResult<TArray<TBibleSearchResult>>;
+    // E-08: same MATCH and table, limited to one chapter. Query.ModuleIds is
+    // ignored - the module comes from Ref.
     function FindInChapter(const Query: TSearchQuery; const Ref: TChapterRef): TResult<TArray<TParagraphHit>>;
     function FindInBibleChapter(const Query: TSearchQuery; const Ref: TBibleChapterRef): TResult<TArray<TVerseHit>>;
   end;

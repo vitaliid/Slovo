@@ -29,16 +29,25 @@ type
 
   TFakeSearch = class(TInterfacedObject, ISearchIndex)
   public
-    BookQueries: TList<TSearchQuery>;
-    BibleQueries: TList<TSearchQuery>;
-    BookError, BibleError, FindError: TResultError;
+    BookQueries: TList<TSearchQuery>;         // CountBook calls
+    BibleQueries: TList<TSearchQuery>;        // CountBible calls
+    BookWindowQueries: TList<TSearchQuery>;   // SearchBook calls, with their windows
+    BookWindows: TList<TSearchWindow>;
+    BibleWindowQueries: TList<TSearchQuery>;
+    BibleWindows: TList<TSearchWindow>;
+    BookCounts: TArray<TBookHitCount>;
+    BibleCounts: TArray<TBibleHitCount>;
+    BookRows: TArray<TBookSearchResult>;      // every SearchBook answers with these
+    BookError, BibleError, WindowError, FindError: TResultError;
     Hits: TArray<TParagraphHit>;
     VerseHits: TArray<TVerseHit>;
     FindCalls: Integer;
     constructor Create;
     destructor Destroy; override;
-    function SearchBook(const Query: TSearchQuery): TResult<TSearchPage<TBookSearchResult>>;
-    function SearchBible(const Query: TSearchQuery): TResult<TSearchPage<TBibleSearchResult>>;
+    function CountBook(const Query: TSearchQuery): TResult<TArray<TBookHitCount>>;
+    function CountBible(const Query: TSearchQuery): TResult<TArray<TBibleHitCount>>;
+    function SearchBook(const Query: TSearchQuery; const Window: TSearchWindow): TResult<TArray<TBookSearchResult>>;
+    function SearchBible(const Query: TSearchQuery; const Window: TSearchWindow): TResult<TArray<TBibleSearchResult>>;
     function FindInChapter(const Query: TSearchQuery; const Ref: TChapterRef): TResult<TArray<TParagraphHit>>;
     function FindInBibleChapter(const Query: TSearchQuery; const Ref: TBibleChapterRef): TResult<TArray<TVerseHit>>;
   end;
@@ -94,6 +103,11 @@ type
     [Test] procedure Search_WholeLibrary_BothCallsWithEmptyScope;
     [Test] procedure Search_OnlyBooksChecked_NoBibleCall;
     [Test] procedure Search_BookError_FiresErrorAndSkipsBible;
+    [Test] procedure Search_NoMatches_NoWindowCalls;
+    [Test] procedure Search_Matches_FirstRowsByRelevanceOfModulesWithHits;
+    [Test] procedure FetchBookResults_NoActiveSearch_NoCall;
+    [Test] procedure FetchBookResults_IsAWindowOfTheActiveSearch;
+    [Test] procedure FetchBookResults_Error_FiresErrorAndGivesNoRows;
     [Test] procedure OpenSearchResult_FocusesThatParagraph;
     [Test] procedure NextPrevious_Bible_CrossesBookButNotModule;
     [Test] procedure ReportUnexpected_LogsAndFires;
@@ -144,29 +158,60 @@ begin
   inherited Create;
   BookQueries := TList<TSearchQuery>.Create;
   BibleQueries := TList<TSearchQuery>.Create;
+  BookWindowQueries := TList<TSearchQuery>.Create;
+  BookWindows := TList<TSearchWindow>.Create;
+  BibleWindowQueries := TList<TSearchQuery>.Create;
+  BibleWindows := TList<TSearchWindow>.Create;
 end;
 
 destructor TFakeSearch.Destroy;
 begin
+  BibleWindows.Free;
+  BibleWindowQueries.Free;
+  BookWindows.Free;
+  BookWindowQueries.Free;
   BibleQueries.Free;
   BookQueries.Free;
   inherited;
 end;
 
-function TFakeSearch.SearchBook(const Query: TSearchQuery): TResult<TSearchPage<TBookSearchResult>>;
+function TFakeSearch.CountBook(const Query: TSearchQuery): TResult<TArray<TBookHitCount>>;
 begin
   BookQueries.Add(Query);
   if BookError <> reNone then
-    Exit(TResult<TSearchPage<TBookSearchResult>>.Failure(BookError));
-  Result := TResult<TSearchPage<TBookSearchResult>>.Success(Default(TSearchPage<TBookSearchResult>));
+    Exit(TResult<TArray<TBookHitCount>>.Failure(BookError));
+  Result := TResult<TArray<TBookHitCount>>.Success(BookCounts);
 end;
 
-function TFakeSearch.SearchBible(const Query: TSearchQuery): TResult<TSearchPage<TBibleSearchResult>>;
+function TFakeSearch.CountBible(const Query: TSearchQuery): TResult<TArray<TBibleHitCount>>;
 begin
   BibleQueries.Add(Query);
   if BibleError <> reNone then
-    Exit(TResult<TSearchPage<TBibleSearchResult>>.Failure(BibleError));
-  Result := TResult<TSearchPage<TBibleSearchResult>>.Success(Default(TSearchPage<TBibleSearchResult>));
+    Exit(TResult<TArray<TBibleHitCount>>.Failure(BibleError));
+  Result := TResult<TArray<TBibleHitCount>>.Success(BibleCounts);
+end;
+
+function TFakeSearch.SearchBook(const Query: TSearchQuery;
+  const Window: TSearchWindow): TResult<TArray<TBookSearchResult>>;
+begin
+  BookWindowQueries.Add(Query);
+  BookWindows.Add(Window);
+  if WindowError <> reNone then
+    Exit(TResult<TArray<TBookSearchResult>>.Failure(WindowError));
+  Result := TResult<TArray<TBookSearchResult>>.Success(BookRows);
+end;
+
+function TFakeSearch.SearchBible(const Query: TSearchQuery;
+  const Window: TSearchWindow): TResult<TArray<TBibleSearchResult>>;
+var
+  NoRows: TArray<TBibleSearchResult>;
+begin
+  NoRows := nil;
+  BibleWindowQueries.Add(Query);
+  BibleWindows.Add(Window);
+  if WindowError <> reNone then
+    Exit(TResult<TArray<TBibleSearchResult>>.Failure(WindowError));
+  Result := TResult<TArray<TBibleSearchResult>>.Success(NoRows);
 end;
 
 function TFakeSearch.FindInChapter(const Query: TSearchQuery; const Ref: TChapterRef): TResult<TArray<TParagraphHit>>;
@@ -577,6 +622,82 @@ begin
   Assert.AreEqual(0, Integer(FSearch.BibleQueries.Count));
   Assert.AreEqual(0, Integer(FReplies.Count));
   Assert.IsFalse(FVM.HasActiveQuery);
+end;
+
+function BookHits(const Id: string; ChapterOrder, Count: Integer): TBookHitCount;
+begin
+  Result.ModuleId := Id;
+  Result.ChapterOrder := ChapterOrder;
+  Result.Count := Count;
+end;
+
+procedure TMainViewModelTests.Search_NoMatches_NoWindowCalls;
+begin
+  CreateViewModel;
+  FVM.Start;
+  FVM.Search('жертва', True, False, False);
+  Assert.AreEqual(0, Integer(FSearch.BookWindows.Count));
+  Assert.AreEqual(0, Integer(FSearch.BibleWindows.Count));
+  Assert.AreEqual(1, Integer(FReplies.Count));
+  Assert.IsFalse(FReplies[0].Books.Truncated);
+end;
+
+procedure TMainViewModelTests.Search_Matches_FirstRowsByRelevanceOfModulesWithHits;
+begin
+  CreateViewModel;
+  FVM.Start;
+  // B-34: counts first; then one window by relevance over the modules that have matches.
+  FSearch.BookCounts := [BookHits('PP', 1, 3), BookHits('PP', 3, 1), BookHits('DA', 2, 1)];
+  FSearch.BookRows := [Default(TBookSearchResult)];
+  FVM.Search('жертва', True, False, True);
+  Assert.AreEqual(1, Integer(FSearch.BookWindows.Count));
+  Assert.AreEqual(2, Integer(Length(FSearch.BookWindowQueries[0].ModuleIds)));
+  Assert.AreEqual('PP', string(FSearch.BookWindowQueries[0].ModuleIds[0]));
+  Assert.AreEqual('DA', string(FSearch.BookWindowQueries[0].ModuleIds[1]));
+  Assert.IsTrue(FSearch.BookWindowQueries[0].WordForms);
+  Assert.IsTrue(FSearch.BookWindows[0].Order = soRelevance);
+  Assert.AreEqual(0, FSearch.BookWindows[0].Offset);
+  Assert.AreEqual(DefaultMaxResults, FSearch.BookWindows[0].Count);
+  Assert.AreEqual(1, Integer(Length(FReplies[0].Books.Items)));
+  Assert.IsTrue(FReplies[0].Books.Truncated, '5 matches, 1 row shown');
+end;
+
+procedure TMainViewModelTests.FetchBookResults_NoActiveSearch_NoCall;
+begin
+  CreateViewModel;
+  FVM.Start;
+  Assert.AreEqual(0, Integer(Length(FVM.FetchBookResults(['PP'], soText, 0, 50))));
+  Assert.AreEqual(0, Integer(FSearch.BookWindows.Count));
+end;
+
+procedure TMainViewModelTests.FetchBookResults_IsAWindowOfTheActiveSearch;
+var
+  Rows: TArray<TBookSearchResult>;
+begin
+  CreateViewModel;
+  FVM.Start;
+  FVM.Search('жертва', True, True, False);
+  FSearch.BookRows := [Default(TBookSearchResult), Default(TBookSearchResult)];
+  Rows := FVM.FetchBookResults(['PP'], soText, 50, 50);
+  Assert.AreEqual(2, Integer(Length(Rows)));
+  Assert.AreEqual(1, Integer(FSearch.BookWindows.Count));
+  Assert.AreEqual('жертва', FSearch.BookWindowQueries[0].Text);
+  Assert.IsTrue(FSearch.BookWindowQueries[0].ExactPhrase);
+  Assert.AreEqual('PP', string(FSearch.BookWindowQueries[0].ModuleIds[0]));
+  Assert.IsTrue(FSearch.BookWindows[0].Order = soText);
+  Assert.AreEqual(50, FSearch.BookWindows[0].Offset);
+  Assert.AreEqual(50, FSearch.BookWindows[0].Count);
+end;
+
+procedure TMainViewModelTests.FetchBookResults_Error_FiresErrorAndGivesNoRows;
+begin
+  CreateViewModel;
+  FVM.Start;
+  FVM.Search('жертва', True, False, False);
+  FSearch.WindowError := reInvalidQuery;
+  Assert.AreEqual(0, Integer(Length(FVM.FetchBookResults(['PP'], soText, 0, 50))));
+  Assert.AreEqual(1, Integer(FErrors.Count));
+  Assert.IsTrue(FErrors[0] = reInvalidQuery);
 end;
 
 procedure TMainViewModelTests.OpenSearchResult_FocusesThatParagraph;

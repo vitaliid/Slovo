@@ -189,7 +189,34 @@ type
     Text: string;                     // raw user text; sanitizing is Infrastructure's job
     ExactPhrase: Boolean;
     WordForms: Boolean;               // B-28/B-31: stemmed tables instead of exact ones
-    MaxResults: Integer;              // B-19: <= 0 means DefaultMaxResults
+  end;
+
+  // B-34: the order of the rows in a window of results.
+  TSearchOrder = (
+    soText,         // as in the book: chapter, paragraph / Bible book, chapter, verse
+    soRelevance     // bm25 of the table
+  );
+
+  // B-34: Count rows starting at Offset, in Order.
+  TSearchWindow = record
+    Order: TSearchOrder;
+    Offset: Integer;                  // 0-based
+    Count: Integer;                   // > 0; <= 0 is an empty answer without a query
+  end;
+
+  // B-34: how many matches a chapter of a book / a book of a translation has.
+  // Only units with matches; within a module by ChapterOrder / OrderInModule.
+  // The order of the modules is not defined - the catalog gives it.
+  TBookHitCount = record
+    ModuleId: TModuleId;
+    ChapterOrder: Integer;
+    Count: Integer;
+  end;
+
+  TBibleHitCount = record
+    ModuleId: TModuleId;
+    BookCode: TBookCode;
+    Count: Integer;
   end;
 
   TSearchHighlight = record
@@ -211,13 +238,6 @@ type
     Highlights: TArray<TSearchHighlight>;
   end;
 
-  // Items: by relevance within a language group; groups follow one another (B-31).
-  // Truncated: at least one group was cut by LIMIT MaxResults + 1.
-  TSearchPage<T> = record
-    Items: TArray<T>;
-    Truncated: Boolean;
-  end;
-
   // Matches inside one chapter (E-08), in chapter order.
   TParagraphHit = record
     LogicalIndex: Integer;
@@ -228,9 +248,6 @@ type
     VerseNumber: Integer;
     Highlights: TArray<TSearchHighlight>;   // offsets in TVerseContent.Text
   end;
-
-const
-  DefaultMaxResults = 200;            // B-19
 
 implementation
 

@@ -20,6 +20,11 @@ uses
   Core.Contracts,
   Core.Events;
 
+const
+  // INTERIM (B-34, step 2 of 4): until the grouped list of E-19 replaces the flat
+  // one, the list shows the first rows by relevance of every language group.
+  DefaultMaxResults = 200;
+
 type
   // State of the text column (Slovo_04 A.2).
   TReaderView = (rvShelf, rvToc, rvRead);
@@ -41,6 +46,14 @@ type
     ChapterOrder: Integer;        // lnChapter: book ChapterOrder or Bible ChapterNumber
     Count: Integer;               // E-09: ChildCount or TBookInfo.ChapterCount; 0 = no counter
     Checked: Boolean;             // lnModule / lnBibleTranslation only (R4-41)
+  end;
+
+  // INTERIM (B-34, step 2 of 4): the flat page the list still shows. Items: by
+  // relevance within a language group, groups one after another (B-31).
+  // Truncated: there are more matches than rows here.
+  TSearchPage<T> = record
+    Items: TArray<T>;
+    Truncated: Boolean;
   end;
 
   // One search run returns two pages (B-27); an empty section has empty Items.
@@ -99,6 +112,11 @@ type
     procedure ReportError(Error: TResultError; const Where: string);
     procedure RememberPosition(const Position: TReadingPosition);
     function IsChecked(const Id: TModuleId): Boolean;
+    function LanguageGroups(const Ids: TArray<TModuleId>): TArray<TArray<TModuleId>>;
+    function WindowOfBooks(const Query: TSearchQuery; const ModuleIds: TArray<TModuleId>;
+      Order: TSearchOrder; Offset, Count: Integer; out Items: TArray<TBookSearchResult>): Boolean;
+    function WindowOfBible(const Query: TSearchQuery; const ModuleIds: TArray<TModuleId>;
+      Order: TSearchOrder; Offset, Count: Integer; out Items: TArray<TBibleSearchResult>): Boolean;
   public
     constructor Create(const ALibrary: ILibrary; ACatalog: TLibraryCatalog;
       const ASearchIndex: ISearchIndex; const ASettings: ISettings; const ALogger: ILogger);
@@ -124,6 +142,13 @@ type
     // ---- Search (B-27, B-28, B-31)
     procedure SetChecked(const ModuleId: TModuleId; Value: Boolean);
     procedure Search(const Text: string; WholeLibrary, ExactPhrase, WordForms: Boolean);
+    // B-34: a window of rows of the active search. ModuleIds - one book / one
+    // translation (soText) or modules of one language (soRelevance). An error
+    // fires OnErrorOccurred and gives no rows; no active search - no rows.
+    function FetchBookResults(const ModuleIds: TArray<TModuleId>; Order: TSearchOrder;
+      Offset, Count: Integer): TArray<TBookSearchResult>;
+    function FetchBibleResults(const ModuleIds: TArray<TModuleId>; Order: TSearchOrder;
+      Offset, Count: Integer): TArray<TBibleSearchResult>;
     procedure OpenSearchResult(const Ref: TParagraphRef); overload;
     procedure OpenSearchResult(const Ref: TVerseRef); overload;
 
@@ -658,15 +683,147 @@ begin
   FSettings.SetCheckedModules(FChecked.ToArray);
 end;
 
+// The modules grouped by language, the groups in the order uk, ru, en, then the
+// rest by code (B-31): a window of results lives inside one language.
+function TMainViewModel.LanguageGroups(const Ids: TArray<TModuleId>): TArray<TArray<TModuleId>>;
+
+  function Rank(const Language: string): Integer;
+  begin
+    if Language = 'uk' then
+      Result := 0
+    else if Language = 'ru' then
+      Result := 1
+    else if Language = 'en' then
+      Result := 2
+    else
+      Result := 3;
+  end;
+
+  function Before(const L, R: string): Boolean;
+  begin
+    if Rank(L) <> Rank(R) then
+      Result := Rank(L) < Rank(R)
+    else
+      Result := CompareStr(L, R) < 0;
+  end;
+
+var
+  Languages: TArray<string>;
+  Id: TModuleId;
+  M: TModule;
+  I, J: Integer;
+begin
+  Result := nil;
+  for Id in Ids do
+  begin
+    if not FCatalog.FindModule(Id, M) then
+      Continue;
+    J := -1;
+    for I := 0 to High(Languages) do
+      if Languages[I] = M.Language then
+        J := I;
+    if J < 0 then
+    begin
+      // A new language takes its place among the groups.
+      J := Length(Languages);
+      SetLength(Languages, J + 1);
+      SetLength(Result, J + 1);
+      while (J > 0) and Before(M.Language, Languages[J - 1]) do
+      begin
+        Languages[J] := Languages[J - 1];
+        Result[J] := Result[J - 1];
+        Dec(J);
+      end;
+      Languages[J] := M.Language;
+      Result[J] := nil;
+    end;
+    Result[J] := Result[J] + [Id];
+  end;
+end;
+
+function TMainViewModel.WindowOfBooks(const Query: TSearchQuery; const ModuleIds: TArray<TModuleId>;
+  Order: TSearchOrder; Offset, Count: Integer; out Items: TArray<TBookSearchResult>): Boolean;
+var
+  Q: TSearchQuery;
+  Window: TSearchWindow;
+  R: TResult<TArray<TBookSearchResult>>;
+begin
+  Items := nil;
+  Q := Query;
+  Q.ModuleIds := ModuleIds;
+  Window.Order := Order;
+  Window.Offset := Offset;
+  Window.Count := Count;
+  R := FSearchIndex.SearchBook(Q, Window);
+  Result := R.IsSuccess;
+  if Result then
+    Items := R.Value
+  else
+    FOnErrorOccurred.Fire(R.Error);
+end;
+
+function TMainViewModel.WindowOfBible(const Query: TSearchQuery; const ModuleIds: TArray<TModuleId>;
+  Order: TSearchOrder; Offset, Count: Integer; out Items: TArray<TBibleSearchResult>): Boolean;
+var
+  Q: TSearchQuery;
+  Window: TSearchWindow;
+  R: TResult<TArray<TBibleSearchResult>>;
+begin
+  Items := nil;
+  Q := Query;
+  Q.ModuleIds := ModuleIds;
+  Window.Order := Order;
+  Window.Offset := Offset;
+  Window.Count := Count;
+  R := FSearchIndex.SearchBible(Q, Window);
+  Result := R.IsSuccess;
+  if Result then
+    Items := R.Value
+  else
+    FOnErrorOccurred.Fire(R.Error);
+end;
+
+function TMainViewModel.FetchBookResults(const ModuleIds: TArray<TModuleId>; Order: TSearchOrder;
+  Offset, Count: Integer): TArray<TBookSearchResult>;
+begin
+  Result := nil;
+  if FHasActiveQuery and (Length(ModuleIds) > 0) then
+    WindowOfBooks(FActiveQuery, ModuleIds, Order, Offset, Count, Result);
+end;
+
+function TMainViewModel.FetchBibleResults(const ModuleIds: TArray<TModuleId>; Order: TSearchOrder;
+  Offset, Count: Integer): TArray<TBibleSearchResult>;
+begin
+  Result := nil;
+  if FHasActiveQuery and (Length(ModuleIds) > 0) then
+    WindowOfBible(FActiveQuery, ModuleIds, Order, Offset, Count, Result);
+end;
+
 procedure TMainViewModel.Search(const Text: string; WholeLibrary, ExactPhrase, WordForms: Boolean);
 var
   Query, BookQuery, BibleQuery: TSearchQuery;
-  BookIds, BibleIds: TArray<TModuleId>;
+  BookIds, BibleIds, WithHits, Group: TArray<TModuleId>;
   Id: TModuleId;
   M: TModule;
   Reply: TSearchReply;
-  Books: TResult<TSearchPage<TBookSearchResult>>;
-  Bible: TResult<TSearchPage<TBibleSearchResult>>;
+  BookCounts: TResult<TArray<TBookHitCount>>;
+  BibleCounts: TResult<TArray<TBibleHitCount>>;
+  BookCount: TBookHitCount;
+  BibleCount: TBibleHitCount;
+  BookItems: TArray<TBookSearchResult>;
+  BibleItems: TArray<TBibleSearchResult>;
+  Total: Integer;
+
+  procedure AddOnce(const ModuleId: TModuleId);
+  var
+    Known: TModuleId;
+  begin
+    for Known in WithHits do
+      if Known = ModuleId then
+        Exit;
+    WithHits := WithHits + [ModuleId];
+  end;
+
 begin
   // The form already shows a status line for these (R4-24); this is a guard for tests.
   if Text.Replace(#$00A0, ' ').Trim.IsEmpty then
@@ -695,31 +852,60 @@ begin
   Reply := Default(TSearchReply);
   Reply.Query := Query;
 
-  // R4-01: an empty list of one kind means NO call, not "the whole library".
+  // Step 1 (B-34): count all matches. R4-01: an empty list of one kind means NO
+  // call, not "the whole library".
+  // INTERIM (step 2 of 4): then the first rows by relevance of every language
+  // group, for the flat list; the grouped list will take its windows itself.
   if WholeLibrary or (Length(BookIds) > 0) then
   begin
     BookQuery := Query;
     BookQuery.ModuleIds := BookIds;
-    Books := FSearchIndex.SearchBook(BookQuery);
-    if not Books.IsSuccess then
+    BookCounts := FSearchIndex.CountBook(BookQuery);
+    if not BookCounts.IsSuccess then
     begin
-      FOnErrorOccurred.Fire(Books.Error);
+      FOnErrorOccurred.Fire(BookCounts.Error);
       Exit;
     end;
-    Reply.Books := Books.Value;
+    Total := 0;
+    WithHits := nil;
+    for BookCount in BookCounts.Value do
+    begin
+      Inc(Total, BookCount.Count);
+      AddOnce(BookCount.ModuleId);
+    end;
+    for Group in LanguageGroups(WithHits) do
+    begin
+      if not WindowOfBooks(Query, Group, soRelevance, 0, DefaultMaxResults, BookItems) then
+        Exit;
+      Reply.Books.Items := Reply.Books.Items + BookItems;
+    end;
+    Reply.Books.Truncated := Total > Length(Reply.Books.Items);
   end;
 
   if WholeLibrary or (Length(BibleIds) > 0) then
   begin
     BibleQuery := Query;
     BibleQuery.ModuleIds := BibleIds;
-    Bible := FSearchIndex.SearchBible(BibleQuery);
-    if not Bible.IsSuccess then
+    BibleCounts := FSearchIndex.CountBible(BibleQuery);
+    if not BibleCounts.IsSuccess then
     begin
-      FOnErrorOccurred.Fire(Bible.Error);
+      FOnErrorOccurred.Fire(BibleCounts.Error);
       Exit;
     end;
-    Reply.Bible := Bible.Value;
+    Total := 0;
+    WithHits := nil;
+    for BibleCount in BibleCounts.Value do
+    begin
+      Inc(Total, BibleCount.Count);
+      AddOnce(BibleCount.ModuleId);
+    end;
+    for Group in LanguageGroups(WithHits) do
+    begin
+      if not WindowOfBible(Query, Group, soRelevance, 0, DefaultMaxResults, BibleItems) then
+        Exit;
+      Reply.Bible.Items := Reply.Bible.Items + BibleItems;
+    end;
+    Reply.Bible.Truncated := Total > Length(Reply.Bible.Items);
   end;
 
   // FindInChapter ignores ModuleIds (the chapter names its module), so the plain
