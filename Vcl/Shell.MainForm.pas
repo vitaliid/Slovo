@@ -885,9 +885,9 @@ begin
   end;
   // Where the panel's inner edge will be.
   if FSplitPanel = FLeftPanel then
-    X := FLeftPanel.Left + FSplitWidth - ScaleValue(2)
+    X := FLeftPanel.Left + FSplitWidth - ScaleValue(SplitGripWidth)
   else
-    X := FRightPanel.Left + FRightPanel.Width - FSplitWidth;
+    X := FRightPanel.Left + FRightPanel.Width - FSplitWidth + ScaleValue(SplitGripWidth) - ScaleValue(2);
   FSplitGuide.SetBounds(X, FSplitPanel.Top, ScaleValue(2), FSplitPanel.Height);
   if not FSplitGuide.Visible then
   begin
@@ -978,7 +978,9 @@ begin
   Border.ParentBackground := False;
   Border.Color := TColor($00E6E6E6);
   FLeftGrip := Border;
-  MakeSplitGrip(Border, alRight);
+  // The line on the strip's LEFT edge: the scrollbar stands right at the line,
+  // the rest of the strip is on the reading side, where the page is blank anyway.
+  MakeSplitGrip(Border, alLeft);
   FLeftBar := TThinScrollBar.Create(Self, FScale);
   FLeftBar.Left := Border.Left - FLeftBar.Width;     // alRight: left of the border
   FLeftBar.Parent := FLeftPanel;
@@ -1089,7 +1091,7 @@ begin
   Border.Align := alLeft;
   Border.Width := 1;
   FRightGrip := Border;
-  MakeSplitGrip(Border, alLeft);
+  MakeSplitGrip(Border, alRight);        // the strip on the reading side here too
   // The line runs the full height only beside a client panel: VCL lays out
   // alTop children before alLeft ones.
   FRightBar := TThinScrollBar.Create(Self, FScale);
