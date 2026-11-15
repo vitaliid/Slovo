@@ -10,7 +10,12 @@
   is painted in OnAfterCellPaint (OnGetText = '').
 
   The rows come ready from Presentation.SearchResults; a click or Enter
-  reports the section and the index of the item in the reply. *)
+  reports the section and the index of the item in the reply.
+
+  The result that was opened stays marked (E-18, Vitalii, 2026-11-09) wherever
+  the focus goes: the accent bar on the left and a tint of the accent. The
+  results opened before it are dimmed, as visited links. Both live until the
+  next search. *)
 
 interface
 
@@ -41,6 +46,7 @@ type
     FScale: TResultScaleFunc;
     FSectionCaption: TSectionCaptionFunc;
     FOnOpen: TResultOpenEvent;
+    FCurrent: PVirtualNode;                    // the open result; nil = none
 
     function Px(Value: Integer): Integer;
     procedure Open(Node: PVirtualNode);
@@ -53,7 +59,7 @@ type
       Node: PVirtualNode; Column: TColumnIndex; CellRect: TRect);
     procedure TreeNodeClick(Sender: TBaseVirtualTree; const HitInfo: THitInfo);
     procedure TreeKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
-    procedure PaintRow(Canvas: TCanvas; const Row: TResultRow; const R: TRect);
+    procedure PaintRow(Canvas: TCanvas; const Row: TResultRow; const R: TRect; Visited: Boolean);
   public
     constructor Create(AOwner: TComponent; AParent: TWinControl; const Scale: TResultScaleFunc);
     destructor Destroy; override;
@@ -83,6 +89,7 @@ type
   TNodeData = record
     Kind: TNodeKind;
     Section, Group, Row: Integer;
+    Visited: Boolean;                          // nkRow: was opened in this search
   end;
   PNodeData = ^TNodeData;
 
@@ -102,6 +109,10 @@ const
   GroupPx       = 12;
   ColorRowHover = TColor($00F2F2F2);   // rgba(0,0,0,.04) on #fcfcfc
   ColorSnippet  = TColor($003F3F3F);   // #3f3f3f
+  ColorRowCurrent  = TColor($00F5F1ED);   // the accent #3c6ea8 at .08 on #fcfcfc
+  ColorVisited     = TColor($006E6E6E);   // #6e6e6e: the snippet of an opened result
+  ColorVisitedRef  = TColor($008F8F8F);   // #8f8f8f: its reference line
+  ColorVisitedHit  = TColor($00B3845F);   // #5f84b3: its matches, the accent faded
 
 { TSearchResultList }
 
@@ -176,6 +187,7 @@ end;
 procedure TSearchResultList.Show(const Sections: TArray<TResultSection>);
 begin
   FSections := Sections;
+  FCurrent := nil;
   FTree.BeginUpdate;
   try
     FTree.Clear;
@@ -196,6 +208,7 @@ var
   Section: TResultSection;
 begin
   Data := Sender.GetNodeData(Node);
+  Data.Visited := False;
   if ParentNode = nil then
   begin
     Data.Kind := nkSection;
@@ -263,6 +276,7 @@ var
   Data: PNodeData;
   R, TextR: TRect;
   Hot: Boolean;
+  Fill: TColor;
   Text: string;
 begin
   Data := Sender.GetNodeData(Node);
@@ -315,23 +329,31 @@ begin
         // accent, which follows the rounding - the accent box with the hover
         // box over it 2 px in.
         TextR := Rect(R.Left, R.Top, R.Right, R.Top + Px(RowHeight));
-        if Hot then
+        // The open result keeps the bar and its own tint without hover and
+        // without focus (E-18); the hover box is the mockup's.
+        if Hot or (Node = FCurrent) then
         begin
           PaintRoundRect(TargetCanvas, TextR, Px(RowRadius), ColorAccent, clNone);
+          if Node = FCurrent then
+            Fill := ColorRowCurrent
+          else
+            Fill := ColorRowHover;
           PaintRoundRect(TargetCanvas, Rect(TextR.Left + Px(AccentWidth), TextR.Top, TextR.Right, TextR.Bottom),
-            Px(RowRadius) - Px(AccentWidth) div 2, ColorRowHover, clNone);
+            Px(RowRadius) - Px(AccentWidth) div 2, Fill, clNone);
         end;
         TargetCanvas.Brush.Style := bsClear;
         // The transparent border keeps the text 2 px in also without hover.
         PaintRow(TargetCanvas, FSections[Data.Section].Groups[Data.Group].Rows[Data.Row],
-          Rect(TextR.Left + Px(AccentWidth), TextR.Top, TextR.Right, TextR.Bottom));
+          Rect(TextR.Left + Px(AccentWidth), TextR.Top, TextR.Right, TextR.Bottom),
+          Data.Visited and (Node <> FCurrent));
       end;
   end;
 end;
 
 // Reference line, then the snippet word by word over two lines; what does not
-// fit on the second line ends with an ellipsis.
-procedure TSearchResultList.PaintRow(Canvas: TCanvas; const Row: TResultRow; const R: TRect);
+// fit on the second line ends with an ellipsis. Visited: dimmed (E-18).
+procedure TSearchResultList.PaintRow(Canvas: TCanvas; const Row: TResultRow; const R: TRect;
+  Visited: Boolean);
 var
   Left, Right, X, Y, Line, W, I, J: Integer;
   TextR: TRect;
@@ -346,12 +368,18 @@ var
     if Bold then
     begin
       Canvas.Font.Style := [fsBold];
-      Canvas.Font.Color := ColorAccentHover;
+      if Visited then
+        Canvas.Font.Color := ColorVisitedHit
+      else
+        Canvas.Font.Color := ColorAccentHover;
     end
     else
     begin
       Canvas.Font.Style := [];
-      Canvas.Font.Color := ColorSnippet;
+      if Visited then
+        Canvas.Font.Color := ColorVisited
+      else
+        Canvas.Font.Color := ColorSnippet;
     end;
   end;
 
@@ -369,7 +397,10 @@ begin
   Canvas.Font.Name := FUiFont;
   Canvas.Font.Height := -Px(RefPx);
   Canvas.Font.Style := [];
-  Canvas.Font.Color := ColorMuted;
+  if Visited then
+    Canvas.Font.Color := ColorVisitedRef
+  else
+    Canvas.Font.Color := ColorMuted;
   TextR := Rect(Left, R.Top + Px(RowPadY), Right, R.Top + Px(RowPadY) + Px(15));
   SetTextCharacterExtra(Canvas.Handle, Round(Px(RefPx) * 0.08));   // mockup .08em
   Winapi.Windows.DrawText(Canvas.Handle, PChar(Row.RefText), Length(Row.RefText), TextR,
@@ -442,6 +473,12 @@ begin
   Data := FTree.GetNodeData(Node);
   if (Data = nil) or (Data.Kind <> nkRow) or not Assigned(FOnOpen) then
     Exit;
+  // Marked before the chapter loads: the mark is of the click, not of its outcome.
+  if FCurrent <> nil then
+    FTree.InvalidateNode(FCurrent);
+  FCurrent := Node;
+  Data.Visited := True;
+  FTree.InvalidateNode(Node);
   Row := FSections[Data.Section].Groups[Data.Group].Rows[Data.Row];
   FOnOpen(FSections[Data.Section].Kind, Row.Index);
 end;
