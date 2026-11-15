@@ -160,15 +160,18 @@ type
 
 const
   RowHeight     = 74;     // 6 + ref 14 + 2 + 2 x 23 + 6: tighter than the mockup's 88 (Vitalii, 2026-11-15)
-  CompactHeight = 33;     // by books: 5 + one line 23 + 5, no reference line
-  CompactPadY   = 5;
+  CompactHeight = 25;     // by books: 2 + one line 21 + 2, no reference line
+  CompactPadY   = 2;
+  CompactLine   = 21;     // one line needs no leading: the font's own height
+  CompactGap    = 1;      // between the rows by books
+  BlockHeight   = 26;     // a book / a translation by books
   RefGap        = 10;     // between the first line of the snippet and the page on its right
   RowGap        = 2;      // the list's gap
   RowRadius     = 8;
   AccentWidth   = 2;      // border-left 2px, transparent until hover
   BottomPadding = 60;     // aside padding-bottom
   HeaderHeight  = 30;
-  HeadingHeight = 30;     // a chapter / a Bible book over its matches
+  HeadingHeight = 24;     // a chapter / a Bible book over its matches
   RowPadX       = 13;
   RowPadY       = 6;
   RefLine       = 14;     // the reference line
@@ -573,6 +576,8 @@ begin
     Data.Kind := nkBlock;
     Data.Block := Node.Index;
     Data.Row := -1;
+    if Compact then
+      Sender.NodeHeight[Node] := Px(BlockHeight);
     InitialStates := InitialStates + [ivsHasChildren, ivsExpanded];
     Exit;
   end;
@@ -592,7 +597,10 @@ begin
   else
   begin
     Data.Kind := nkHit;
-    Sender.NodeHeight[Node] := HitHeight + Px(RowGap);
+    if Compact then
+      Sender.NodeHeight[Node] := HitHeight + Px(CompactGap)
+    else
+      Sender.NodeHeight[Node] := HitHeight + Px(RowGap);
   end;
 end;
 
@@ -711,7 +719,7 @@ begin
         TargetCanvas.Font.Height := -Px(HeadingPx);
         TargetCanvas.Font.Style := [];
         TargetCanvas.Font.Color := ColorMuted;
-        TextR := Rect(R.Left + Px(AccentWidth + RowPadX), R.Top, R.Right - Px(RowPadX), R.Bottom - Px(5));
+        TextR := Rect(R.Left + Px(AccentWidth + RowPadX), R.Top, R.Right - Px(RowPadX), R.Bottom - Px(3));
         Winapi.Windows.DrawText(TargetCanvas.Handle, PChar(Text), Length(Text), TextR,
           DT_SINGLELINE or DT_BOTTOM or DT_LEFT or DT_NOPREFIX or DT_END_ELLIPSIS);
       end;
@@ -753,7 +761,7 @@ end;
 procedure TSearchResultList.PaintRow(Canvas: TCanvas; const Row: TResultLine; const R: TRect;
   Visited: Boolean);
 var
-  Left, Right, FirstRight, X, Y, Line, MaxLines, W, I, J: Integer;
+  Left, Right, FirstRight, X, Y, Line, MaxLines, LineH, W, I, J: Integer;
   Runs: TArray<TTextRun>;
   TextR: TRect;
   Token: string;
@@ -838,7 +846,7 @@ var
 
   procedure DrawTail(const S: string);
   begin
-    TextR := Rect(X, Y, Limit, Y + Px(SnippetLine));
+    TextR := Rect(X, Y, Limit, Y + LineH);
     Winapi.Windows.DrawText(Canvas.Handle, PChar(S), Length(S), TextR,
       DT_SINGLELINE or DT_TOP or DT_LEFT or DT_NOPREFIX or DT_END_ELLIPSIS);
   end;
@@ -847,6 +855,10 @@ begin
   Left := R.Left + Px(RowPadX);
   Right := R.Right - Px(RowPadX);
   FirstRight := Right;
+  if Compact then
+    LineH := Px(CompactLine)
+  else
+    LineH := Px(SnippetLine);
 
   Canvas.Font.Name := FUiFont;
   Canvas.Font.Height := -Px(RefPx);
@@ -862,7 +874,7 @@ begin
     if Row.RefText <> '' then
     begin
       W := Canvas.TextWidth(Row.RefText);
-      TextR := Rect(Right - W, Y, Right, Y + Px(SnippetLine));
+      TextR := Rect(Right - W, Y, Right, Y + LineH);
       Winapi.Windows.DrawText(Canvas.Handle, PChar(Row.RefText), Length(Row.RefText), TextR,
         DT_SINGLELINE or DT_VCENTER or DT_RIGHT or DT_NOPREFIX);
       FirstRight := Right - W - Px(RefGap);
@@ -920,7 +932,7 @@ begin
         end;
         Inc(Line);
         X := Left;
-        Y := Y + Px(SnippetLine);
+        Y := Y + LineH;
         Token := TrimLeft(Token);
         W := Canvas.TextWidth(Token);
       end;
@@ -934,7 +946,7 @@ begin
         end;
         Inc(Line);
         X := Left;
-        Y := Y + Px(SnippetLine);
+        Y := Y + LineH;
         Continue;
       end;
       Canvas.TextOut(X, Y, Token);
