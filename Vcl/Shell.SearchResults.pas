@@ -826,12 +826,15 @@ var
     end;
   end;
 
-  // One line only: when the first match would not fit on it, the words before
-  // it give way - as many of the nearest ones stay as fit. No "…" in front
-  // (Vitalii, 2026-11-16): a line that starts mid-sentence says so itself.
+  // The snippet is longer than a row can show (E-22: as wide a panel as the
+  // reader makes it gets as many words). When it does not fit and the first
+  // match would stand in the cut-off part or at the very end, the words before
+  // it give way - as many of the nearest ones stay as leave the match within the
+  // first 0.6 of the room, with words after it too. No "…" in front (Vitalii,
+  // 2026-11-16): a line that starts mid-sentence says so itself.
   function FitToMatch(const Source: TArray<TTextRun>; Width: Integer): TArray<TTextRun>;
   var
-    B, K, P, MatchWidth: Integer;
+    B, K, P, MatchWidth, Total: Integer;
     Lead: string;
     LeadRun: TTextRun;
   begin
@@ -845,6 +848,15 @@ var
       end;
     if B <= 0 then
       Exit;                                  // no match, or the snippet starts with it
+    Total := 0;
+    for K := 0 to High(Source) do
+    begin
+      UseSnippetFont(Source[K].Bold);
+      Inc(Total, Canvas.TextWidth(Source[K].Text));
+    end;
+    if Total <= Width then
+      Exit;                                  // all of it fits
+    Width := Round(Width * 0.6);
     UseSnippetFont(True);
     MatchWidth := Canvas.TextWidth(Source[B].Text);
     Lead := '';
@@ -941,7 +953,8 @@ begin
   else
   begin
     MaxLines := 2;
-    Runs := Row.Runs;
+    // Two lines hold a little less than twice the width: a line breaks at a word.
+    Runs := FitToMatch(Row.Runs, (Right - Left) * 2 - Px(48));
   end;
 
   X := Left;

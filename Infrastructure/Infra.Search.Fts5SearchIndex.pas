@@ -92,7 +92,9 @@ uses
 const
   MarkOpen = #2;
   MarkClose = #3;
-  SnippetTokens = 8;
+  // As many words as a wide search panel can show (E-22); the list cuts what
+  // does not fit. 64 is the limit of FTS5.
+  SnippetTokens = 32;
 
   // Word separators in a query: pasted text brings non-breaking spaces,
   // a multi-line field brings tabs and line breaks (R4-52).

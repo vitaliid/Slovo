@@ -53,6 +53,12 @@ type
     procedure SetLanguage(const Value: string);
     function GetZoomStep: Integer;                // E-11: -4..+6, 0 = 20.5 px; out of range -> clamp
     procedure SetZoomStep(Value: Integer);
+    // The widths of the side panels as the reader left them, in 96-DPI pixels;
+    // 0 = never changed (the form takes its default).
+    function GetLeftPanelWidth: Integer;
+    procedure SetLeftPanelWidth(Value: Integer);
+    function GetRightPanelWidth: Integer;
+    procedure SetRightPanelWidth(Value: Integer);
     function GetLeftPanelVisible: Boolean;
     procedure SetLeftPanelVisible(Value: Boolean);
     function GetRightPanelVisible: Boolean;

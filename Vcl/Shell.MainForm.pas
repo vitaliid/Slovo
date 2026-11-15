@@ -209,6 +209,12 @@ type
     // (the reader or the shelf / toc list - re-attached in ShowView), the
     // results. The controls' own scrollbars are clipped in their hosts.
     FLeftBar: TThinScrollBar;
+    // E-22: the inner edges of the side panels are dragged with the mouse.
+    FLeftGrip, FRightGrip: TPanel;
+    FSplitPanel: TPanel;                 // the panel being resized; nil = no drag
+    FSplitStartX, FSplitStartWidth: Integer;
+    FSplitWidth: Integer;                // the width the drag has reached; applied on release
+    FSplitGuide: TPanel;                 // the line that follows the mouse meanwhile
     FCenterBar: TThinScrollBar;
     FRightBar: TThinScrollBar;
     FLibraryHost: TPanel;
@@ -219,6 +225,15 @@ type
     procedure LibraryHostResize(Sender: TObject);
     procedure ResultsHostResize(Sender: TObject);
     procedure ReaderHostResize(Sender: TObject);
+    procedure MakeSplitGrip(Grip: TPanel; LineAlign: TAlign);
+    function ClampSidePanelWidth(Panel: TPanel; Value: Integer): Integer;
+    procedure SetSidePanelWidth(Panel: TPanel; Value: Integer);
+    procedure MoveSplitGuide;
+    procedure SaveSidePanelWidths;
+    procedure SplitMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure SplitMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+    procedure SplitMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure SplitDblClick(Sender: TObject);
 
   private
     // A.5, as the mockup: the user's choice of the side panels (settings.ini)
@@ -794,6 +809,152 @@ begin
   pmMain.Popup(P.X, P.Y);
 end;
 
+{ the side panels' widths (E-22) }
+
+// The 1 px border of a side panel becomes a strip that takes the mouse: the
+// page's colour, the line itself a disabled child on its outer edge (a disabled
+// child gives its mouse messages to the parent).
+procedure TMainForm.MakeSplitGrip(Grip: TPanel; LineAlign: TAlign);
+var
+  Line: TPanel;
+begin
+  Line := TPanel.Create(Self);
+  Line.Parent := Grip;
+  Line.Align := LineAlign;
+  Line.Width := 1;
+  Line.BevelOuter := bvNone;
+  Line.ParentBackground := False;
+  Line.Color := Grip.Color;
+  Line.Enabled := False;
+  Grip.Color := ColorBackground;
+  Grip.Width := ScaleValue(SplitGripWidth);
+  Grip.Cursor := crHSplit;
+  Grip.OnMouseDown := SplitMouseDown;
+  Grip.OnMouseMove := SplitMouseMove;
+  Grip.OnMouseUp := SplitMouseUp;
+  Grip.OnDblClick := SplitDblClick;
+end;
+
+// Between the limits, and the centre keeps its minimum beside the other panel.
+function TMainForm.ClampSidePanelWidth(Panel: TPanel; Value: Integer): Integer;
+var
+  Other, Limit: Integer;
+begin
+  Other := 0;
+  if (Panel = FLeftPanel) and FRightPanel.Visible then
+    Other := FRightPanel.Width;
+  if (Panel = FRightPanel) and FLeftPanel.Visible then
+    Other := FLeftPanel.Width;
+  Limit := Min(ScaleValue(SidePanelMaxWidth), ClientWidth - Other - ScaleValue(CenterMinWidth));
+  Result := Max(Min(Value, Limit), ScaleValue(SidePanelMinWidth));
+end;
+
+procedure TMainForm.SetSidePanelWidth(Panel: TPanel; Value: Integer);
+begin
+  Value := ClampSidePanelWidth(Panel, Value);
+  if Value <> Panel.Width then
+    Panel.Width := Value;
+end;
+
+procedure TMainForm.SaveSidePanelWidths;
+begin
+  if FSettings = nil then
+    Exit;
+  FSettings.SetLeftPanelWidth(MulDiv(FLeftPanel.Width, 96, CurrentPPI));
+  FSettings.SetRightPanelWidth(MulDiv(FRightPanel.Width, 96, CurrentPPI));
+end;
+
+// While the edge is dragged NOTHING is laid out again (Vitalii, 2026-11-16: a
+// live resize re-flowed the chapter and repainted three lists on every mouse
+// move - heavy, with trails of the previous picture). Only a thin line follows
+// the mouse; the panel takes its width once, when the button is released.
+procedure TMainForm.MoveSplitGuide;
+var
+  X: Integer;
+begin
+  if FSplitGuide = nil then
+  begin
+    FSplitGuide := TPanel.Create(Self);
+    FSplitGuide.Visible := False;
+    FSplitGuide.Parent := Self;
+    FSplitGuide.Align := alNone;
+    FSplitGuide.BevelOuter := bvNone;
+    FSplitGuide.ParentBackground := False;
+    FSplitGuide.Color := ColorAccent;
+    FSplitGuide.Enabled := False;        // never takes the mouse from the strip
+  end;
+  // Where the panel's inner edge will be.
+  if FSplitPanel = FLeftPanel then
+    X := FLeftPanel.Left + FSplitWidth - ScaleValue(2)
+  else
+    X := FRightPanel.Left + FRightPanel.Width - FSplitWidth;
+  FSplitGuide.SetBounds(X, FSplitPanel.Top, ScaleValue(2), FSplitPanel.Height);
+  if not FSplitGuide.Visible then
+  begin
+    FSplitGuide.Visible := True;
+    FSplitGuide.BringToFront;
+  end;
+end;
+
+procedure TMainForm.SplitMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState;
+  X, Y: Integer);
+begin
+  if Button <> mbLeft then
+    Exit;
+  if Sender = FLeftGrip then
+    FSplitPanel := FLeftPanel
+  else
+    FSplitPanel := FRightPanel;
+  FSplitStartX := Mouse.CursorPos.X;
+  FSplitStartWidth := FSplitPanel.Width;
+  FSplitWidth := FSplitStartWidth;
+end;
+
+procedure TMainForm.SplitMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+var
+  Delta, Width: Integer;
+begin
+  if (FSplitPanel = nil) or not (ssLeft in Shift) then
+    Exit;
+  Delta := Mouse.CursorPos.X - FSplitStartX;
+  if FSplitPanel = FRightPanel then
+    Delta := -Delta;                     // its inner edge is the left one
+  Width := ClampSidePanelWidth(FSplitPanel, FSplitStartWidth + Delta);
+  if Width = FSplitWidth then
+    Exit;
+  FSplitWidth := Width;
+  MoveSplitGuide;
+end;
+
+procedure TMainForm.SplitMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState;
+  X, Y: Integer);
+var
+  Panel: TPanel;
+begin
+  if FSplitPanel = nil then
+    Exit;
+  Panel := FSplitPanel;
+  FSplitPanel := nil;
+  if FSplitGuide <> nil then
+    FSplitGuide.Visible := False;
+  // One layout and one repaint for the whole drag.
+  SetSidePanelWidth(Panel, FSplitWidth);
+  SaveSidePanelWidths;
+end;
+
+// A double click on the edge: back to the width of the design.
+procedure TMainForm.SplitDblClick(Sender: TObject);
+begin
+  FSplitPanel := nil;
+  if FSplitGuide <> nil then
+    FSplitGuide.Visible := False;
+  if Sender = FLeftGrip then
+    SetSidePanelWidth(FLeftPanel, ScaleValue(LeftPanelWidth))
+  else
+    SetSidePanelWidth(FRightPanel, ScaleValue(RightPanelWidth));
+  SaveSidePanelWidths;
+end;
+
 procedure TMainForm.CreateLeftPanel;
 var
   Border, Content: TPanel;
@@ -816,6 +977,8 @@ begin
   Border.BevelOuter := bvNone;
   Border.ParentBackground := False;
   Border.Color := TColor($00E6E6E6);
+  FLeftGrip := Border;
+  MakeSplitGrip(Border, alRight);
   FLeftBar := TThinScrollBar.Create(Self, FScale);
   FLeftBar.Left := Border.Left - FLeftBar.Width;     // alRight: left of the border
   FLeftBar.Parent := FLeftPanel;
@@ -925,6 +1088,8 @@ begin
   Border.Parent := FRightPanel;
   Border.Align := alLeft;
   Border.Width := 1;
+  FRightGrip := Border;
+  MakeSplitGrip(Border, alLeft);
   // The line runs the full height only beside a client panel: VCL lays out
   // alTop children before alLeft ones.
   FRightBar := TThinScrollBar.Create(Self, FScale);
@@ -1125,6 +1290,14 @@ begin
   FViewSwitch.WholeLibrary := FSettings.GetResultOrder = soText;
   FExactPhrase.Checked := FSettings.GetExactPhrase;
   FWordForms.Checked := FSettings.GetWordForms;
+  // E-22: the widths the reader left; the limit by the centre is applied when
+  // a panel is dragged, not here - the window has not got its size yet.
+  if FSettings.GetLeftPanelWidth > 0 then
+    FLeftPanel.Width := EnsureRange(ScaleValue(FSettings.GetLeftPanelWidth),
+      ScaleValue(SidePanelMinWidth), ScaleValue(SidePanelMaxWidth));
+  if FSettings.GetRightPanelWidth > 0 then
+    FRightPanel.Width := EnsureRange(ScaleValue(FSettings.GetRightPanelWidth),
+      ScaleValue(SidePanelMinWidth), ScaleValue(SidePanelMaxWidth));
   FLeftWanted := FSettings.GetLeftPanelVisible;
   FRightWanted := FSettings.GetRightPanelVisible;
   FZoomStep := EnsureRange(FSettings.GetZoomStep, MinZoomStep, MaxZoomStep);

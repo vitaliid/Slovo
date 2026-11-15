@@ -166,6 +166,8 @@ begin
   Assert.IsFalse(S.GetExactPhrase);
   Assert.IsFalse(S.GetWordForms);
   Assert.IsTrue(S.GetResultOrder = soText);      // E-20: "за книгами" by default
+  Assert.AreEqual(0, S.GetLeftPanelWidth);       // 0 = the form's default
+  Assert.AreEqual(0, S.GetRightPanelWidth);
   Assert.IsFalse(TFile.Exists(FFile), 'nothing is written before Save');
 end;
 
@@ -187,6 +189,8 @@ begin
   S.SetExactPhrase(True);
   S.SetWordForms(True);
   S.SetResultOrder(soRelevance);
+  S.SetLeftPanelWidth(340);
+  S.SetRightPanelWidth(480);
   S.Save;
 
   S := NewSettings;
@@ -207,6 +211,8 @@ begin
   Assert.IsTrue(S.GetExactPhrase);
   Assert.IsTrue(S.GetWordForms);
   Assert.IsTrue(S.GetResultOrder = soRelevance);
+  Assert.AreEqual(340, S.GetLeftPanelWidth);
+  Assert.AreEqual(480, S.GetRightPanelWidth);
   Assert.AreEqual(0, FLogger.Count);
 end;
 

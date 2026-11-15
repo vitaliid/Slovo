@@ -41,6 +41,10 @@ type
     procedure SetLanguage(const Value: string);
     function GetZoomStep: Integer;
     procedure SetZoomStep(Value: Integer);
+    function GetLeftPanelWidth: Integer;
+    procedure SetLeftPanelWidth(Value: Integer);
+    function GetRightPanelWidth: Integer;
+    procedure SetRightPanelWidth(Value: Integer);
     function GetLeftPanelVisible: Boolean;
     procedure SetLeftPanelVisible(Value: Boolean);
     function GetRightPanelVisible: Boolean;
@@ -153,6 +157,31 @@ end;
 procedure TIniSettings.SetZoomStep(Value: Integer);
 begin
   FIni.WriteInteger(SUi, 'ZoomStep', EnsureRange(Value, MinZoomStep, MaxZoomStep));
+end;
+
+// 0 = not set, or not a sensible number: the form takes its default.
+function TIniSettings.GetLeftPanelWidth: Integer;
+begin
+  Result := ReadInt(SUi, 'LeftPanelWidth', 0);
+  if Result < 0 then
+    Result := 0;
+end;
+
+procedure TIniSettings.SetLeftPanelWidth(Value: Integer);
+begin
+  FIni.WriteString(SUi, 'LeftPanelWidth', IntToStr(Value));
+end;
+
+function TIniSettings.GetRightPanelWidth: Integer;
+begin
+  Result := ReadInt(SUi, 'RightPanelWidth', 0);
+  if Result < 0 then
+    Result := 0;
+end;
+
+procedure TIniSettings.SetRightPanelWidth(Value: Integer);
+begin
+  FIni.WriteString(SUi, 'RightPanelWidth', IntToStr(Value));
 end;
 
 function TIniSettings.GetLeftPanelVisible: Boolean;

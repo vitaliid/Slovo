@@ -39,6 +39,12 @@ const
   HeaderHeight     = 57;
   LeftPanelWidth   = 272;
   RightPanelWidth  = 320;
+  // The side panels are dragged by their inner edge (E-22): between these, and
+  // never leaving the centre less than CenterMinWidth.
+  SidePanelMinWidth = 200;
+  SidePanelMaxWidth = 720;
+  CenterMinWidth    = 360;
+  SplitGripWidth    = 5;      // the strip that takes the mouse; its line is 1 px
   TextColumnMax    = 864;     // mockup 724; wider by Vitalii (2026-11-06): text ~800 px
   // The text column of the mockup "Читання v2" (A.5): <main> has side padding
   // clamp(16px, 4vw, 56px); inside it the column is max-width 724px (border-box:
