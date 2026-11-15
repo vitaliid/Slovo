@@ -112,7 +112,8 @@ type
     procedure TreeAfterPaint(Sender: TBaseVirtualTree; TargetCanvas: TCanvas);
     procedure TreeNodeClick(Sender: TBaseVirtualTree; const HitInfo: THitInfo);
     procedure TreeKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
-    procedure PaintRow(Canvas: TCanvas; const Row: TResultLine; const R: TRect; Visited: Boolean);
+    procedure PaintRow(Canvas: TCanvas; const Row: TResultLine; const R: TRect;
+      Visited, RefFirst: Boolean);
   public
     constructor Create(AOwner: TComponent; AParent: TWinControl; const Scale: TResultScaleFunc);
     destructor Destroy; override;
@@ -645,7 +646,7 @@ var
   Fill: TColor;
   Text, Count: string;
   Line: TResultLine;
-  W: Integer;
+  W, I, Total: Integer;
 begin
   Data := Sender.GetNodeData(Node);
   if (Data = nil) or (FModel = nil) or (Data.Part > High(FModel.Parts)) then
@@ -674,6 +675,24 @@ begin
       begin
         TargetCanvas.Brush.Style := bsClear;
         TextR := Rect(R.Left + Px(2), R.Top, R.Right - Px(4), R.Bottom);
+        // The number of matches on the right: of the book / translation, and of
+        // the whole section (Vitalii, 2026-11-16).
+        Total := 0;
+        if Data.Kind = nkBlock then
+          Total := FModel.Parts[Data.Part].Blocks[Data.Block].HitCount
+        else
+          for I := 0 to High(FModel.Parts[Data.Part].Blocks) do
+            Inc(Total, FModel.Parts[Data.Part].Blocks[I].HitCount);
+        Count := IntToStr(Total);
+        TargetCanvas.Font.Name := FUiFont;
+        TargetCanvas.Font.Height := -Px(CountPx);
+        TargetCanvas.Font.Style := [];
+        TargetCanvas.Font.Color := ColorMarker;
+        W := TargetCanvas.TextWidth(Count);
+        Winapi.Windows.DrawText(TargetCanvas.Handle, PChar(Count), Length(Count), TextR,
+          DT_SINGLELINE or DT_VCENTER or DT_RIGHT or DT_NOPREFIX);
+        TextR.Right := TextR.Right - W - Px(8);
+
         if Data.Kind = nkSection then
         begin
           if Assigned(FSectionCaption) then
@@ -688,17 +707,6 @@ begin
         end
         else
         begin
-          // The number of matches of the book / translation, on the right.
-          Count := IntToStr(FModel.Parts[Data.Part].Blocks[Data.Block].HitCount);
-          TargetCanvas.Font.Name := FUiFont;
-          TargetCanvas.Font.Height := -Px(CountPx);
-          TargetCanvas.Font.Style := [];
-          TargetCanvas.Font.Color := ColorMarker;
-          W := TargetCanvas.TextWidth(Count);
-          Winapi.Windows.DrawText(TargetCanvas.Handle, PChar(Count), Length(Count), TextR,
-            DT_SINGLELINE or DT_VCENTER or DT_RIGHT or DT_NOPREFIX);
-          TextR.Right := TextR.Right - W - Px(8);
-
           Text := FModel.Parts[Data.Part].Blocks[Data.Block].Caption;
           TargetCanvas.Font.Name := UiFontMediumName;
           TargetCanvas.Font.Height := -Px(GroupPx);
@@ -749,7 +757,8 @@ begin
           // The transparent border keeps the text 2 px in also without hover.
           PaintRow(TargetCanvas, Line,
             Rect(TextR.Left + Px(AccentWidth), TextR.Top, TextR.Right, TextR.Bottom),
-            Data.Visited and (Node <> FCurrent));
+            Data.Visited and (Node <> FCurrent),
+            Compact and (FModel.Parts[Data.Part].Kind = rsBible));
       end;
   end;
 end;
@@ -758,8 +767,10 @@ end;
 // fit on the second line ends with an ellipsis. Visited: dimmed (E-18).
 // Compact (by books): no reference line and one line of the snippet - the page /
 // verse stands small on its right, and the line is that much shorter.
+// RefFirst (the Bible by books; Vitalii, 2026-11-16): the verse "22:8" stands
+// before the text, in a column wide enough for "00:00", not on the right.
 procedure TSearchResultList.PaintRow(Canvas: TCanvas; const Row: TResultLine; const R: TRect;
-  Visited: Boolean);
+  Visited, RefFirst: Boolean);
 var
   Left, Right, FirstRight, X, Y, Line, MaxLines, LineH, W, I, J: Integer;
   Runs: TArray<TTextRun>;
@@ -871,7 +882,15 @@ begin
   if Compact then
   begin
     Y := R.Top + Px(CompactPadY);
-    if Row.RefText <> '' then
+    if (Row.RefText <> '') and RefFirst then
+    begin
+      W := Max(Canvas.TextWidth(Row.RefText), Canvas.TextWidth('00:00'));
+      TextR := Rect(Left, Y, Left + W, Y + LineH);
+      Winapi.Windows.DrawText(Canvas.Handle, PChar(Row.RefText), Length(Row.RefText), TextR,
+        DT_SINGLELINE or DT_VCENTER or DT_LEFT or DT_NOPREFIX);
+      Left := Left + W + Px(RefGap);         // the text starts after the verse
+    end
+    else if Row.RefText <> '' then
     begin
       W := Canvas.TextWidth(Row.RefText);
       TextR := Rect(Right - W, Y, Right, Y + LineH);
