@@ -31,6 +31,16 @@ procedure SetZoomPx(Reader: TRichEdit; Px: Double);
 // Caret to CharPos and the line with it a little below the top of the view.
 procedure ScrollToChar(Reader: TRichEdit; CharPos: Integer);
 
+// The boxes of the matches, painted over the text RichEdit has just painted
+// (call after its WM_PAINT). RichEdit's own \highlight fills the whole line,
+// whose extra height is above the letters; these boxes stand around the
+// letters. Starts / Lens - positions in the control; Focus - the match being
+// looked at (-1 = none); EmPx - the text size on screen, in device pixels.
+// The fill is "screen AND colour": the page darkens to the colour, the letters
+// stay dark - and painting the same box twice changes nothing, so every paint
+// may repeat all the visible ones.
+procedure PaintMatchBoxes(Reader: TRichEdit; const Starts, Lens: TArray<Integer>; Focus, EmPx: Integer);
+
 implementation
 
 uses
@@ -40,6 +50,8 @@ uses
   Winapi.Windows,
   Winapi.Messages,
   Winapi.RichEdit,
+  System.Types,
+  Vcl.Graphics,
   Presentation.Theme;
 
 const
@@ -107,6 +119,122 @@ begin
   TargetLine := Integer(SendMessage(Reader.Handle, EM_EXLINEFROMCHAR, 0, CharPos));
   FirstLine := Integer(SendMessage(Reader.Handle, EM_GETFIRSTVISIBLELINE, 0, 0));
   SendMessage(Reader.Handle, EM_LINESCROLL, 0, Max(TargetLine - LinesAboveTarget, 0) - FirstLine);
+end;
+
+procedure PaintMatchBoxes(Reader: TRichEdit; const Starts, Lens: TArray<Integer>; Focus, EmPx: Integer);
+const
+  DestAndPattern = $00A000C9;                 // ternary raster op DPa
+
+var
+  DC: HDC;
+  Client: TRect;
+
+  function PosOf(CharPos: Integer): TPoint;
+  var
+    P: TPointL;
+  begin
+    P.x := 0;
+    P.y := 0;
+    SendMessage(Reader.Handle, EM_POSFROMCHAR, WPARAM(@P), CharPos);
+    Result := Point(P.x, P.y);
+  end;
+
+  procedure Fill(const R: TRect; Color: TColor);
+  var
+    Brush, Old: HGDIOBJ;
+  begin
+    if (R.Right <= R.Left) or (R.Bottom <= R.Top) then
+      Exit;
+    Brush := CreateSolidBrush(ColorToRGB(Color));
+    Old := SelectObject(DC, Brush);
+    PatBlt(DC, R.Left, R.Top, R.Width, R.Height, DestAndPattern);
+    SelectObject(DC, Old);
+    DeleteObject(Brush);
+  end;
+
+  // One match, line by line: a phrase may wrap.
+  procedure PaintOne(Start, Len: Integer; Color: TColor);
+  var
+    C, Stop, SegEnd, Line, NextStart, Left, Right, Bottom, LineHeight, Font, Baseline, PadX: Integer;
+    P: TPoint;
+  begin
+    C := Start;
+    Stop := Start + Len;
+    PadX := Max(EmPx div 8, 2);
+    while C < Stop do
+    begin
+      Line := Integer(SendMessage(Reader.Handle, EM_EXLINEFROMCHAR, 0, C));
+      NextStart := Integer(SendMessage(Reader.Handle, EM_LINEINDEX, Line + 1, 0));
+      P := PosOf(C);
+      Left := P.X;
+      if (NextStart > C) and (NextStart < Stop) then
+      begin
+        // The match goes on to the next line: this piece ends with the line's
+        // last character (the space the line was broken at).
+        SegEnd := NextStart;
+        Right := PosOf(NextStart - 1).X;
+      end
+      else
+      begin
+        SegEnd := Stop;
+        Right := PosOf(Stop).X;
+        if Right < Left then                 // the match ends the line exactly
+          Right := PosOf(Stop - 1).X + EmPx div 2;
+      end;
+      // The line's bottom is the top of the next one.
+      if NextStart > C then
+        Bottom := PosOf(NextStart).Y
+      else
+        Bottom := P.Y + Round(EmPx * 1.72);  // the last line of the document
+      LineHeight := Bottom - P.Y;
+      // Where the letters stand in the line (seen on Windows 11, 2026-11-16):
+      //   text and epigraph (exact line height, 1.5 - 1.8 em): the BASELINE is
+      //     almost on the line's bottom - all the extra height is above the
+      //     letters and the descenders hang into the next line;
+      //   titles (the font's own line height, about 1.3 of its size): the
+      //     descenders are inside the line.
+      // The box: from a little over the tall letters to under the descenders.
+      if (LineHeight >= Round(EmPx * 1.4)) and (LineHeight <= Round(EmPx * 1.8)) then
+      begin
+        Font := EmPx;
+        Baseline := Bottom - Round(Font * 0.08);
+      end
+      else
+      begin
+        Font := Round(LineHeight / 1.3);
+        Baseline := Bottom - Round(Font * 0.3);
+      end;
+      if (Baseline + Font > Client.Top) and (Baseline - Font < Client.Bottom) then
+        Fill(Rect(Left - PadX, Baseline - Round(Font * 0.8), Right + PadX, Baseline + Round(Font * 0.3)), Color);
+      C := SegEnd;
+    end;
+  end;
+
+var
+  I, FirstChar, LastChar: Integer;
+  Corner: TPointL;
+begin
+  if (Length(Starts) = 0) or (Length(Lens) <> Length(Starts)) or not Reader.HandleAllocated then
+    Exit;
+  Winapi.Windows.GetClientRect(Reader.Handle, Client);
+  // Only the matches on screen: the characters at the corners of the view.
+  Corner.x := 0;
+  Corner.y := 0;
+  FirstChar := Integer(SendMessage(Reader.Handle, EM_CHARFROMPOS, 0, LPARAM(@Corner)));
+  Corner.x := Client.Right - 1;
+  Corner.y := Client.Bottom - 1;
+  LastChar := Integer(SendMessage(Reader.Handle, EM_CHARFROMPOS, 0, LPARAM(@Corner)));
+  DC := GetDC(Reader.Handle);
+  try
+    for I := 0 to High(Starts) do
+      if (Lens[I] > 0) and (Starts[I] + Lens[I] >= FirstChar) and (Starts[I] <= LastChar) then
+        if I = Focus then
+          PaintOne(Starts[I], Lens[I], ColorHitCurrent)
+        else
+          PaintOne(Starts[I], Lens[I], ColorHitOther);
+  finally
+    ReleaseDC(Reader.Handle, DC);
+  end;
 end;
 
 end.

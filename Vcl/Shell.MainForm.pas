@@ -101,7 +101,7 @@ type
     FOnViewChanged: TProc<TReaderView>;
     FOnChapterLoaded: TProc<TChapterLoadedArgs>;
     FOnBibleChapterLoaded: TProc<TBibleChapterLoadedArgs>;
-    FOnSearchCompleted: TProc<TSearchReply>;
+    FOnSearchCompleted: TProc<TSearchSummary>;
     FOnErrorOccurred: TProc<TResultError>;
 
     FNodes: TArray<TLibraryNode>;        // from OnLibraryChanged: shelf and toc rows come from it
@@ -150,7 +150,15 @@ type
     FWordForms: TFlatCheckBox;
     FSearchStatus: TLabel;
     FResultList: TSearchResultList;
-    FLastReply: TSearchReply;
+    FSummary: TSearchSummary;            // the counts of the last search: the list is rebuilt from them
+    FModel: TSearchResultsModel;         // what FResultList shows; owned here
+    FViewSwitch: TScopeSwitch;           // E-20: "за книгами" | "за релевантністю"
+    FResultBar: TPanel;                  // E-19: the pinned line and "collapse all"
+    FPinned: TLabel;
+    FCollapseAll: TLabel;
+    // What the reader did to the list in each view, to find it again after a
+    // switch and back; reset by a new search.
+    FViewState: array[TSearchOrder] of TResultListState;
     FHasReply: Boolean;
     FSearchDone: Boolean;
     FSearchStatusKey: string;            // '' = empty line; kept to re-localize
@@ -165,8 +173,12 @@ type
     procedure OpenSearch;
     procedure RunSearch;
     procedure ShowSearchStatus(const Key: string; Arg: Integer = -1);
-    procedure ShowSearchReply(const Reply: TSearchReply);
-    procedure SearchResultOpened(Section: TResultSectionKind; Index: Integer);
+    procedure ShowSearchSummary(const Summary: TSearchSummary);
+    procedure RebuildResults;
+    procedure UpdateResultBar;
+    procedure ViewSwitchChanged(Sender: TObject);
+    procedure CollapseAllClick(Sender: TObject);
+    procedure SearchResultOpened(Section: TResultSectionKind; const Line: TResultLine);
     procedure SearchEditKeyPress(Sender: TObject; var Key: Char);
     procedure FormKeyPress(Sender: TObject; var Key: Char);
     procedure MoveHit(Delta: Integer);
@@ -441,6 +453,7 @@ begin
   FChapterList.Free;                     // the controls themselves are owned by the form
   FLibraryTree.Free;
   FResultList.Free;
+  FModel.Free;                           // after the list that showed it
   inherited;
 end;
 
@@ -980,6 +993,38 @@ begin
   FSearchStatus := NewCaption(11, 0.1);
   Place(FSearchStatus, 22, 16, 22, 8);
 
+  // E-20: the two views of the results. The same pill as the scope: its first
+  // segment ("WholeLibrary") is "за книгами".
+  FViewSwitch := TScopeSwitch.Create(Self,
+    function(Value: Integer): Integer
+    begin
+      Result := ScaleValue(Value);
+    end);
+  FViewSwitch.OnChange := ViewSwitchChanged;
+  Place(FViewSwitch, 22, 2, 22, 8);
+
+  // E-19: the pinned line - the book and the chapter of the topmost row - and
+  // "collapse all" on its right.
+  FResultBar := TPanel.Create(Self);
+  FResultBar.BevelOuter := bvNone;
+  FResultBar.ParentBackground := False;
+  FResultBar.Color := ColorBackground;
+  FResultBar.Height := ScaleValue(18);
+  Place(FResultBar, 22, 0, 22, 6);
+  FCollapseAll := NewCaption(11, 0);
+  FCollapseAll.Parent := FResultBar;
+  FCollapseAll.Align := alRight;
+  FCollapseAll.Layout := tlCenter;
+  FCollapseAll.Font.Color := ColorAccent;
+  FCollapseAll.Cursor := crHandPoint;
+  FCollapseAll.OnClick := CollapseAllClick;
+  FCollapseAll.Visible := False;
+  FPinned := NewCaption(11, 0);
+  FPinned.Parent := FResultBar;
+  FPinned.AutoSize := False;
+  FPinned.Align := alClient;
+  FPinned.Layout := tlCenter;
+
   FResultsHost := TPanel.Create(Self);
   FResultsHost.Parent := Content;
   FResultsHost.Top := Order * 1000 + 1000;           // after the alTop rows
@@ -1011,6 +1056,14 @@ begin
         Result := L('search.section.bible');
     end;
   FResultList.OnOpen := SearchResultOpened;
+  FResultList.OnPinnedChanged := procedure
+    begin
+      FPinned.Caption := FResultList.PinnedText;
+    end;
+  FResultList.OnFoldChanged := procedure
+    begin
+      UpdateResultBar;                   // "collapse all" <-> "expand all"
+    end;
   FSearchStatusArg := -1;
 end;
 
@@ -1045,7 +1098,7 @@ begin
       FHitQuery := FViewModel.ActiveQuery.Text;
       RenderBibleChapter(Args);
     end;
-  FOnSearchCompleted := procedure(Reply: TSearchReply) begin ShowSearchReply(Reply); end;
+  FOnSearchCompleted := procedure(Summary: TSearchSummary) begin ShowSearchSummary(Summary); end;
   FOnErrorOccurred := procedure(Error: TResultError) begin ShowError(Error); end;
 
   FViewModel.OnLibraryChanged.Add(FOnLibraryChanged);
@@ -1068,6 +1121,7 @@ begin
   // before the font (the placeholder was cut at the bottom).
   FSearchRow.Height := ScaleValue(28);
   FScope.WholeLibrary := FSettings.GetSearchWholeLibrary;
+  FViewSwitch.WholeLibrary := FSettings.GetResultOrder = soText;
   FExactPhrase.Checked := FSettings.GetExactPhrase;
   FWordForms.Checked := FSettings.GetWordForms;
   FLeftWanted := FSettings.GetLeftPanelVisible;
@@ -1168,10 +1222,13 @@ begin
   FWordForms.Caption := L('search.wordForms');
   FWordForms.Hint := L('search.wordForms.hint');
   ShowSearchStatus(FSearchStatusKey, FSearchStatusArg);
+  FViewSwitch.AllCaption := L('search.view.books');
+  FViewSwitch.CheckedCaption := L('search.view.relevance');
   if FHasReply then
-    ShowSearchReply(FLastReply)          // "Розділ N" in the reference lines
+    RebuildResults                       // "Розділ N" in the headings and reference lines
   else
     FResultList.Invalidate;
+  UpdateResultBar;
   FPrevLink.Hint := L('read.prevChapter') + ' (←)';
   FNextLink.Hint := L('read.nextChapter') + ' (→)';
   FHitPrev.Hint := L('read.prevHit') + ' (Shift+F3)';
@@ -1746,6 +1803,11 @@ begin
     Exit;
   end;
   FReaderWndProc(Message);
+  // The boxes of the matches go over what RichEdit has just painted (its own
+  // \highlight stood higher than the words - see Shell.RichEdit).
+  if (Message.Msg = WM_PAINT) and (FShown <> scNone) and (Length(FDoc.MatchStarts) > 0) then
+    PaintMatchBoxes(redReader, FDoc.MatchStarts, FDoc.MatchLens, FFocusMatch,
+      Round(ScaleValue(100) * ZoomPx(FZoomStep) / 100));
   // A book, not an editor: no blinking caret. RichEdit shows the caret again
   // after focus, clicks, keys and selection changes, so it is hidden after each
   // of them. Extra HideCaret calls are harmless: the caret is destroyed on
@@ -1865,37 +1927,119 @@ begin
     ShowSearchStatus('');                // an error: the banner (status bar for now) says it
 end;
 
-procedure TMainForm.ShowSearchReply(const Reply: TSearchReply);
+procedure TMainForm.ShowSearchSummary(const Summary: TSearchSummary);
 begin
   FSearchDone := True;
-  FLastReply := Reply;
+  // A new search: nothing of the previous list is kept.
+  FResultList.Clear;
+  FreeAndNil(FModel);
+  FViewState[soText] := Default(TResultListState);
+  FViewState[soRelevance] := Default(TResultListState);
+  FSummary := Summary;
   FHasReply := True;
-  FResultList.Show(BuildResultSections(Reply, FViewModel.Catalog,
+  RebuildResults;
+end;
+
+// The list is built from the counts of the last search (B-34): after a search,
+// a change of the view (E-20) or of the language ("Розділ N"). No rows are read
+// here - the list asks for them as it paints.
+procedure TMainForm.RebuildResults;
+var
+  ModuleOrder: TArray<TModuleId>;
+  View: TSearchOrder;
+  Model: TSearchResultsModel;
+  I: Integer;
+begin
+  if not FHasReply then
+    Exit;
+  // The list of the same search is rebuilt (the view or the language changed):
+  // keep how the reader left it.
+  if FModel <> nil then
+    FViewState[FModel.Order] := FResultList.SaveState;
+  // The books and translations as the library tree lists them (B-25).
+  ModuleOrder := nil;
+  for I := 0 to High(FNodes) do
+    if FNodes[I].Kind in [lnModule, lnBibleTranslation] then
+      ModuleOrder := ModuleOrder + [FNodes[I].ModuleId];
+  if FViewSwitch.WholeLibrary then
+    View := soText
+  else
+    View := soRelevance;
+  Model := TSearchResultsModel.Create(FSummary.Books, FSummary.Bible, FViewModel.Catalog,
+    ModuleOrder, View,
     function(ChapterOrder: Integer): string
     begin
       Result := L('read.chapter', [ChapterOrder]);
-    end));
-  // E-12: "Збіги: 172", or "Показано перші 200" when any page was cut.
-  if ResultTruncated(Reply) then
-    ShowSearchStatus('search.truncated', DefaultMaxResults)
-  else
-    ShowSearchStatus('search.hits', ResultCount(Reply));
+    end,
+    function(const ModuleIds: TArray<TModuleId>; Order: TSearchOrder;
+      Offset, Count: Integer): TArray<TBookSearchResult>
+    begin
+      Result := FViewModel.FetchBookResults(ModuleIds, Order, Offset, Count);
+    end,
+    function(const ModuleIds: TArray<TModuleId>; Order: TSearchOrder;
+      Offset, Count: Integer): TArray<TBibleSearchResult>
+    begin
+      Result := FViewModel.FetchBibleResults(ModuleIds, Order, Offset, Count);
+    end);
+  FResultList.Show(Model);
+  FModel.Free;                           // the list no longer shows the previous one
+  FModel := Model;
+  FResultList.RestoreState(FViewState[View]);
+  UpdateResultBar;
+  ShowSearchStatus('search.hits', Model.TotalHits);   // always the exact number (B-34)
 end;
 
-procedure TMainForm.SearchResultOpened(Section: TResultSectionKind; Index: Integer);
+procedure TMainForm.UpdateResultBar;
+begin
+  if FCollapseAll = nil then
+    Exit;
+  // By books only: by relevance the list is flat (the Bible keeps its
+  // translations, each folds by its own button).
+  FCollapseAll.Visible := FHasReply and FViewSwitch.WholeLibrary and FResultList.HasBlocks;
+  if FResultList.AllCollapsed then
+    FCollapseAll.Caption := L('search.expandAll')
+  else
+    FCollapseAll.Caption := L('search.collapseAll');
+  FPinned.Caption := FResultList.PinnedText;
+end;
+
+// E-20: the view is kept at once and the list is rebuilt from the same counts -
+// no new search.
+procedure TMainForm.ViewSwitchChanged(Sender: TObject);
+begin
+  if FViewSwitch.WholeLibrary then
+    FSettings.SetResultOrder(soText)
+  else
+    FSettings.SetResultOrder(soRelevance);
+  RebuildResults;
+end;
+
+procedure TMainForm.CollapseAllClick(Sender: TObject);
+begin
+  if FResultList.AllCollapsed then
+    FResultList.ExpandAll
+  else
+    FResultList.CollapseAll;
+  UpdateResultBar;
+end;
+
+procedure TMainForm.SearchResultOpened(Section: TResultSectionKind; const Line: TResultLine);
 var
   Queued: TThreadProcedure;
+  IsBook: Boolean;
+  BookRef: TParagraphRef;
+  BibleRef: TVerseRef;
 begin
+  IsBook := Section = rsBooks;
+  BookRef := Line.BookRef;
+  BibleRef := Line.BibleRef;
   // Opening a chapter moves the focus; do it after the click has finished.
   Queued := procedure
     begin
-      if Section = rsBooks then
-      begin
-        if Index <= High(FLastReply.Books.Items) then
-          FViewModel.OpenSearchResult(FLastReply.Books.Items[Index].Ref);
-      end
-      else if Index <= High(FLastReply.Bible.Items) then
-        FViewModel.OpenSearchResult(FLastReply.Bible.Items[Index].Ref);
+      if IsBook then
+        FViewModel.OpenSearchResult(BookRef)
+      else
+        FViewModel.OpenSearchResult(BibleRef);
     end;
   TThread.ForceQueue(nil, Queued);
 end;
@@ -1938,6 +2082,10 @@ procedure TMainForm.ClearSearchResults;
 begin
   FHasReply := False;
   FResultList.Clear;
+  FreeAndNil(FModel);
+  FViewState[soText] := Default(TResultListState);
+  FViewState[soRelevance] := Default(TResultListState);
+  UpdateResultBar;
   ShowSearchStatus('');
 end;
 

@@ -2,20 +2,17 @@
 
 (* What the search panel shows, without VCL (Slovo_04 A.4, C.5; B-27, B-31).
 
-  BuildResultSections turns a TSearchReply into the rows of the result list:
-  two sections, "Книги" and "Біблія", never merged by rank (B-27); the Bible
-  section is grouped by translation (B-31) - SearchBible returns the groups one
-  after another, so a group starts wherever ModuleId changes. Empty sections
-  are left out. Each row carries its reference line and the snippet cut into
-  runs, the matched ones bold (TSearchHighlight).
+  Two sections, "Книги" and "Біблія", never merged by rank (B-27). Each row
+  carries its reference line and the snippet cut into runs, the matched ones
+  bold (TSearchHighlight).
 
-  Reference line (A.4): "Патріархи і пророки · Розділ 3 · 71.2" - the page
-  part only when the book has a page system; Bible: "Буття 22:8". "Розділ N"
-  is a localized string, so the form passes it in as ChapterLabel - this unit
-  knows neither the localizer nor the form.
+  Reference line (A.4): in full "Патріархи і пророки · Розділ 3 · 71.2" - the
+  page part only when the book has a page system; Bible: "Буття 22:8".
+  "Розділ N" is a localized string, so the form passes it in as ChapterLabel -
+  this unit knows neither the localizer nor the form.
 
-  TSearchResultsModel (E-19, E-20; B-34) is the list that replaces the flat
-  page: built from the COUNTS of a search, it knows every row of the list
+  TSearchResultsModel (E-19, E-20; B-34) is the list: built from the COUNTS
+  of a search, it knows every row of the list
   before a single snippet is read, and reads the rows in windows of PageSize
   when the list asks for them.
     soText ("за книгами"): a block per book in library order - a heading per
@@ -33,8 +30,7 @@ uses
   System.SysUtils,
   System.Generics.Collections,
   Core.Domain,
-  Core.Catalog,
-  Presentation.MainViewModel;
+  Core.Catalog;
 
 type
   TTextRun = record
@@ -43,23 +39,6 @@ type
   end;
 
   TResultSectionKind = (rsBooks, rsBible);
-
-  TResultRow = record
-    RefText: string;
-    Runs: TArray<TTextRun>;
-    Index: Integer;                     // into Reply.Books.Items or Reply.Bible.Items
-  end;
-
-  // Books: one group with Caption = ''; Bible: one group per translation.
-  TResultGroup = record
-    Caption: string;
-    Rows: TArray<TResultRow>;
-  end;
-
-  TResultSection = record
-    Kind: TResultSectionKind;
-    Groups: TArray<TResultGroup>;
-  end;
 
   TChapterLabelFunc = reference to function(ChapterOrder: Integer): string;
 
@@ -70,13 +49,6 @@ function SplitRuns(const Snippet: string; const Highlights: TArray<TSearchHighli
 function BookResultRef(Catalog: TLibraryCatalog; const Item: TBookSearchResult;
   const ChapterLabel: TChapterLabelFunc): string;
 function BibleResultRef(Catalog: TLibraryCatalog; const Item: TBibleSearchResult): string;
-
-function BuildResultSections(const Reply: TSearchReply; Catalog: TLibraryCatalog;
-  const ChapterLabel: TChapterLabelFunc): TArray<TResultSection>;
-
-// Number for the status line (E-12) and whether it is "the first N" (any page Truncated).
-function ResultCount(const Reply: TSearchReply): Integer;
-function ResultTruncated(const Reply: TSearchReply): Boolean;
 
 // ---------------------------------------------------------------------------
 // The grouped list (E-19, E-20; B-34)
@@ -138,6 +110,7 @@ type
     procedure BuildBooks(const Counts: TArray<TBookHitCount>; const ModuleOrder: TArray<TModuleId>);
     procedure BuildBible(const Counts: TArray<TBibleHitCount>; const ModuleOrder: TArray<TModuleId>);
     function HeadingAt(const Block: TResultBlock; Row: Integer): Integer;
+    function RunsOf(const Snippet: string; const Highlights: TArray<TSearchHighlight>): TArray<TTextRun>;
     procedure FillBookHit(Part, Block, Hit: Integer; var Line: TResultLine);
     procedure FillBibleHit(Part, Block, Hit: Integer; var Line: TResultLine);
   public
@@ -151,6 +124,8 @@ type
       const FetchBible: TFetchBibleRowsFunc);
     destructor Destroy; override;
 
+    // Whether the row is a heading - without reading anything (row heights).
+    function IsHeading(Part, Block, Row: Integer): Boolean;
     // Row of a block; reads its window on first use. Out of range - a hit not Loaded.
     function Line(Part, Block, Row: Integer): TResultLine;
     // The pinned line over the list (E-19): the block and the heading of the row -
@@ -249,73 +224,6 @@ begin
   if Result = '' then
     Result := string(Item.Ref.Chapter.Book.BookCode);
   Result := Format('%s %d:%d', [Result, Item.Ref.Chapter.ChapterNumber, Item.Ref.VerseNumber]);
-end;
-
-function BuildResultSections(const Reply: TSearchReply; Catalog: TLibraryCatalog;
-  const ChapterLabel: TChapterLabelFunc): TArray<TResultSection>;
-var
-  Section: TResultSection;
-  Group: TResultGroup;
-  Row: TResultRow;
-  M: TModule;
-  Current: TModuleId;
-  I: Integer;
-begin
-  Result := nil;
-
-  if Length(Reply.Books.Items) > 0 then
-  begin
-    Section := Default(TResultSection);
-    Section.Kind := rsBooks;
-    Group := Default(TResultGroup);
-    for I := 0 to High(Reply.Books.Items) do
-    begin
-      Row.RefText := BookResultRef(Catalog, Reply.Books.Items[I], ChapterLabel);
-      Row.Runs := SplitRuns(Reply.Books.Items[I].Snippet, Reply.Books.Items[I].Highlights);
-      Row.Index := I;
-      Group.Rows := Group.Rows + [Row];
-    end;
-    Section.Groups := [Group];
-    Result := Result + [Section];
-  end;
-
-  if Length(Reply.Bible.Items) > 0 then
-  begin
-    Section := Default(TResultSection);
-    Section.Kind := rsBible;
-    Current := '';
-    Group := Default(TResultGroup);
-    for I := 0 to High(Reply.Bible.Items) do
-    begin
-      if (I = 0) or (Reply.Bible.Items[I].Ref.Chapter.Book.ModuleId <> Current) then
-      begin
-        if I > 0 then
-          Section.Groups := Section.Groups + [Group];
-        Current := Reply.Bible.Items[I].Ref.Chapter.Book.ModuleId;
-        Group := Default(TResultGroup);
-        if Catalog.FindModule(Current, M) then
-          Group.Caption := M.Title
-        else
-          Group.Caption := string(Current);
-      end;
-      Row.RefText := BibleResultRef(Catalog, Reply.Bible.Items[I]);
-      Row.Runs := SplitRuns(Reply.Bible.Items[I].Snippet, Reply.Bible.Items[I].Highlights);
-      Row.Index := I;
-      Group.Rows := Group.Rows + [Row];
-    end;
-    Section.Groups := Section.Groups + [Group];
-    Result := Result + [Section];
-  end;
-end;
-
-function ResultCount(const Reply: TSearchReply): Integer;
-begin
-  Result := Length(Reply.Books.Items) + Length(Reply.Bible.Items);
-end;
-
-function ResultTruncated(const Reply: TSearchReply): Boolean;
-begin
-  Result := Reply.Books.Truncated or Reply.Bible.Truncated;
 end;
 
 { TSearchResultsModel }
@@ -582,6 +490,18 @@ begin
   Result := Lo;
 end;
 
+function TSearchResultsModel.IsHeading(Part, Block, Row: Integer): Boolean;
+var
+  B: TResultBlock;
+begin
+  Result := False;
+  if (Part < 0) or (Part > High(FParts)) or (Block < 0) or (Block > High(FParts[Part].Blocks)) then
+    Exit;
+  B := FParts[Part].Blocks[Block];
+  if (Length(B.Headings) > 0) and (Row >= 0) and (Row < B.RowCount) then
+    Result := B.Headings[HeadingAt(B, Row)].Row = Row;
+end;
+
 function TSearchResultsModel.Line(Part, Block, Row: Integer): TResultLine;
 var
   B: TResultBlock;
@@ -613,6 +533,20 @@ begin
     FillBibleHit(Part, Block, Hit, Result);
 end;
 
+// The runs of a row. The "…" FTS5 puts before a snippet cut at its start is
+// dropped (Vitalii, 2026-11-16): the one at the end stays - there the text goes on.
+function TSearchResultsModel.RunsOf(const Snippet: string;
+  const Highlights: TArray<TSearchHighlight>): TArray<TTextRun>;
+begin
+  Result := SplitRuns(Snippet, Highlights);
+  if (Length(Result) > 0) and not Result[0].Bold and Result[0].Text.StartsWith('…') then
+  begin
+    Result[0].Text := Result[0].Text.Substring(1).TrimLeft;
+    if Result[0].Text = '' then
+      Delete(Result, 0, 1);
+  end;
+end;
+
 procedure TSearchResultsModel.FillBookHit(Part, Block, Hit: Integer; var Line: TResultLine);
 var
   Key: string;
@@ -635,7 +569,7 @@ begin
   Item := Items[Hit mod PageSize];
   Line.Loaded := True;
   Line.BookRef := Item.Ref;
-  Line.Runs := SplitRuns(Item.Snippet, Item.Highlights);
+  Line.Runs := RunsOf(Item.Snippet, Item.Highlights);
   if FOrder = soRelevance then
     Line.RefText := BookResultRef(FCatalog, Item, FChapterLabel)
   else if Item.PageNumber > 0 then
@@ -665,7 +599,7 @@ begin
   Item := Items[Hit mod PageSize];
   Line.Loaded := True;
   Line.BibleRef := Item.Ref;
-  Line.Runs := SplitRuns(Item.Snippet, Item.Highlights);
+  Line.Runs := RunsOf(Item.Snippet, Item.Highlights);
   if FOrder = soRelevance then
     Line.RefText := BibleResultRef(FCatalog, Item)
   else

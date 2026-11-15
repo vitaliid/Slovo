@@ -1,8 +1,7 @@
 ﻿unit Presentation.SearchResults.Tests;
 
 { Presentation.SearchResults (Slovo_04 A.4, C.5) without a form: snippet runs,
-  reference lines, the two sections and the Bible grouped by translation (B-27,
-  B-31), the status-line numbers (E-12); TSearchResultsModel - the grouped
+  reference lines; TSearchResultsModel - the grouped
   list built from counts and read in windows (E-19, E-20, B-34). }
 
 interface
@@ -32,10 +31,6 @@ type
     [Test] procedure BookRef_WithPage;
     [Test] procedure BookRef_WithoutPageSystem;
     [Test] procedure BibleRef_BookChapterVerse;
-    [Test] procedure Sections_EmptyReply_None;
-    [Test] procedure Sections_BooksThenBible_BibleGroupedByTranslation;
-    [Test] procedure Sections_OnlyBible_OneSection;
-    [Test] procedure Count_AndTruncatedFromEitherPage;
   end;
 
   [TestFixture]
@@ -56,6 +51,7 @@ type
     [Test] procedure Text_BooksInLibraryOrder_ChapterHeadings;
     [Test] procedure Text_Lines_HeadingsAndHitsInOrder;
     [Test] procedure Text_RefIsPageOnly_EmptyWithoutPageSystem;
+    [Test] procedure Hit_LeadingEllipsisIsDropped;
     [Test] procedure Windows_ReadOnce_OnDemand;
     [Test] procedure Window_ShorterThanCounted_RowNotLoaded;
     [Test] procedure Relevance_Books_OneBlockPerLanguage_FullRef;
@@ -200,65 +196,6 @@ end;
 procedure TSearchResultsTests.BibleRef_BookChapterVerse;
 begin
   Assert.AreEqual('Буття 22:8', BibleResultRef(FCatalog, VerseItem('UBIO', 'GEN', 22, 8)));
-end;
-
-procedure TSearchResultsTests.Sections_EmptyReply_None;
-begin
-  Assert.AreEqual(0, Integer(Length(BuildResultSections(Default(TSearchReply), FCatalog, FChapterLabel))));
-end;
-
-procedure TSearchResultsTests.Sections_BooksThenBible_BibleGroupedByTranslation;
-var
-  Reply: TSearchReply;
-  S: TArray<TResultSection>;
-begin
-  Reply := Default(TSearchReply);
-  Reply.Books.Items := [BookItem('PP', 1, 10, 1, 'a'), BookItem('PP', 2, 20, 1, 'b')];
-  Reply.Bible.Items := [VerseItem('UBIO', 'GEN', 1, 1), VerseItem('UBIO', 'GEN', 1, 2),
-    VerseItem('RST', 'GEN', 3, 4)];
-  S := BuildResultSections(Reply, FCatalog, FChapterLabel);
-
-  Assert.AreEqual(2, Integer(Length(S)));
-  Assert.IsTrue(S[0].Kind = rsBooks);
-  Assert.AreEqual(1, Integer(Length(S[0].Groups)));
-  Assert.AreEqual('', S[0].Groups[0].Caption);
-  Assert.AreEqual(2, Integer(Length(S[0].Groups[0].Rows)));
-  Assert.AreEqual(1, S[0].Groups[0].Rows[1].Index);
-
-  Assert.IsTrue(S[1].Kind = rsBible);
-  Assert.AreEqual(2, Integer(Length(S[1].Groups)));
-  Assert.AreEqual('Огієнко', S[1].Groups[0].Caption);
-  Assert.AreEqual(2, Integer(Length(S[1].Groups[0].Rows)));
-  Assert.AreEqual('Синодальний', S[1].Groups[1].Caption);
-  Assert.AreEqual(1, Integer(Length(S[1].Groups[1].Rows)));
-  Assert.AreEqual('Бытие 3:4', S[1].Groups[1].Rows[0].RefText);
-  Assert.AreEqual(2, S[1].Groups[1].Rows[0].Index, 'index into Reply.Bible.Items');
-end;
-
-procedure TSearchResultsTests.Sections_OnlyBible_OneSection;
-var
-  Reply: TSearchReply;
-  S: TArray<TResultSection>;
-begin
-  Reply := Default(TSearchReply);
-  Reply.Bible.Items := [VerseItem('RST', 'GEN', 1, 1)];
-  S := BuildResultSections(Reply, FCatalog, FChapterLabel);
-  Assert.AreEqual(1, Integer(Length(S)));
-  Assert.IsTrue(S[0].Kind = rsBible);
-  Assert.AreEqual(1, Integer(Length(S[0].Groups)));
-end;
-
-procedure TSearchResultsTests.Count_AndTruncatedFromEitherPage;
-var
-  Reply: TSearchReply;
-begin
-  Reply := Default(TSearchReply);
-  Reply.Books.Items := [BookItem('PP', 1, 0, 0, 'a')];
-  Reply.Bible.Items := [VerseItem('RST', 'GEN', 1, 1), VerseItem('RST', 'GEN', 1, 2)];
-  Assert.AreEqual(3, ResultCount(Reply));
-  Assert.IsFalse(ResultTruncated(Reply));
-  Reply.Bible.Truncated := True;
-  Assert.IsTrue(ResultTruncated(Reply));
 end;
 
 { TResultsModelTests }
@@ -436,6 +373,9 @@ begin
   Assert.AreEqual('hit 2', L.Runs[0].Text, 'the heading takes a row, not a match');
   Assert.AreEqual('PP', string(L.BookRef.Chapter.ModuleId));
   Assert.IsFalse(M.Line(0, 0, 5).Loaded, 'past the last row');
+  Assert.IsTrue(M.IsHeading(0, 0, 0) and M.IsHeading(0, 0, 3));
+  Assert.IsFalse(M.IsHeading(0, 0, 1) or M.IsHeading(0, 0, 4) or M.IsHeading(0, 0, 5));
+  Assert.AreEqual(1, Integer(FCalls.Count), 'IsHeading reads nothing: one window for the lines above');
 end;
 
 procedure TResultsModelTests.Text_RefIsPageOnly_EmptyWithoutPageSystem;
@@ -452,6 +392,20 @@ begin
       Result := [BookItem('PP', 3, 0, 0, 'no pages')];
     end, nil);
   Assert.AreEqual('', FModel.Line(0, 0, 1).RefText);
+end;
+
+procedure TResultsModelTests.Hit_LeadingEllipsisIsDropped;
+var
+  L: TResultLine;
+begin
+  FreeAndNil(FModel);
+  FModel := TSearchResultsModel.Create([BookHits('PP', 3, 1)], nil, FCatalog, nil, soText, FChapterLabel,
+    function(const ModuleIds: TArray<TModuleId>; AOrder: TSearchOrder; Offset, Count: Integer): TArray<TBookSearchResult>
+    begin
+      Result := [BookItem('PP', 3, 0, 0, '…cut at the start and at the end…')];
+    end, nil);
+  L := FModel.Line(0, 0, 1);
+  Assert.AreEqual('cut at the start and at the end…', L.Runs[0].Text);
 end;
 
 procedure TResultsModelTests.Windows_ReadOnce_OnDemand;

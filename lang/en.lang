@@ -67,7 +67,10 @@ search.enterWord = enter a word
 search.checkSome = check at least one book
 search.busy = Searching…
 search.hits = Matches: %d
-search.truncated = Showing the first %d
+search.view.books = By book
+search.view.relevance = By relevance
+search.collapseAll = Collapse all
+search.expandAll = Expand all
 search.section.books = Books
 search.section.bible = Bible
 

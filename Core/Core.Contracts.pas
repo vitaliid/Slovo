@@ -74,6 +74,8 @@ type
     procedure SetExactPhrase(Value: Boolean);
     function GetWordForms: Boolean;
     procedure SetWordForms(Value: Boolean);
+    function GetResultOrder: TSearchOrder;        // E-20: the view of the results; default soText
+    procedure SetResultOrder(Value: TSearchOrder);
 
     procedure Save;                               // never raises; read-only folder -> logged once (D-04)
   end;

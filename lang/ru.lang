@@ -67,7 +67,10 @@ search.enterWord = введите слово
 search.checkSome = отметьте хотя бы одну книгу
 search.busy = Ищу…
 search.hits = Совпадения: %d
-search.truncated = Показаны первые %d
+search.view.books = По книгам
+search.view.relevance = По релевантности
+search.collapseAll = Свернуть все
+search.expandAll = Развернуть все
 search.section.books = Книги
 search.section.bible = Библия
 

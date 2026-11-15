@@ -59,6 +59,8 @@ type
     procedure SetExactPhrase(Value: Boolean);
     function GetWordForms: Boolean;
     procedure SetWordForms(Value: Boolean);
+    function GetResultOrder: TSearchOrder;
+    procedure SetResultOrder(Value: TSearchOrder);
     procedure Save;
   end;
 
@@ -318,6 +320,23 @@ end;
 procedure TIniSettings.SetWordForms(Value: Boolean);
 begin
   WriteBool(SSearch, 'WordForms', Value);
+end;
+
+// E-20: Books | Relevance; anything else is Books.
+function TIniSettings.GetResultOrder: TSearchOrder;
+begin
+  if SameText(ReadText(SSearch, 'ResultView', ''), 'Relevance') then
+    Result := soRelevance
+  else
+    Result := soText;
+end;
+
+procedure TIniSettings.SetResultOrder(Value: TSearchOrder);
+begin
+  if Value = soRelevance then
+    FIni.WriteString(SSearch, 'ResultView', 'Relevance')
+  else
+    FIni.WriteString(SSearch, 'ResultView', 'Books');
 end;
 
 // ---- Save

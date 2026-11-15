@@ -165,6 +165,7 @@ begin
   Assert.IsTrue(S.GetSearchWholeLibrary);       // default WholeLibrary=1
   Assert.IsFalse(S.GetExactPhrase);
   Assert.IsFalse(S.GetWordForms);
+  Assert.IsTrue(S.GetResultOrder = soText);      // E-20: "за книгами" by default
   Assert.IsFalse(TFile.Exists(FFile), 'nothing is written before Save');
 end;
 
@@ -185,6 +186,7 @@ begin
   S.SetSearchWholeLibrary(False);
   S.SetExactPhrase(True);
   S.SetWordForms(True);
+  S.SetResultOrder(soRelevance);
   S.Save;
 
   S := NewSettings;
@@ -204,6 +206,7 @@ begin
   Assert.IsFalse(S.GetSearchWholeLibrary);
   Assert.IsTrue(S.GetExactPhrase);
   Assert.IsTrue(S.GetWordForms);
+  Assert.IsTrue(S.GetResultOrder = soRelevance);
   Assert.AreEqual(0, FLogger.Count);
 end;
 

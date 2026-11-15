@@ -68,6 +68,7 @@ type
     Paragraphs: TArray<TParagraphRange>;
     HitStarts: TArray<Integer>;  // per Hits[i]: StartChar of its first match; -1 - not in this chapter
     MatchStarts: TArray<Integer>;   // per match (word), document order: its position in RichEdit
+    MatchLens: TArray<Integer>;     // per match: its length there - the form paints the boxes
     HitFirstMatch: TArray<Integer>; // per Hits[i]: index in MatchStarts of its first match; -1 - none
     Where: string;               // 'PP:3' / 'ohienko-uk:GEN:3' - for the log line
     TitleLen: Integer;           // the title's characters from 0: the form sizes them (A.2)
@@ -151,15 +152,20 @@ uses
 
 const
   // Fixed colour table (R6, R4-09): \cf1 text, \cf2 marker, \cf3 muted,
-  // \cf4 epigraph, \cf5/\cf6 hit backgrounds (\highlight5/6), \cf7 heading.
+  // \cf4 epigraph, \cf5/\cf6 the matches (\highlight5/6), \cf7 heading.
+  // \cf5 and \cf6 are the page's own background (Vitalii, 2026-11-16): RichEdit
+  // paints \highlight over the whole line, whose extra height is above the
+  // letters, so a box stood higher than its word. The groups stay in the RTF -
+  // they say where the matches are - and the form paints the boxes itself,
+  // around the letters (Shell.RichEdit.PaintMatchBoxes, MatchStarts/MatchLens).
   RtfColorTable =
     '{\colortbl;' +
     '\red47\green47\blue47;' +      // 1 #2f2f2f
     '\red138\green138\blue138;' +   // 2 #8a8a8a
     '\red118\green118\blue118;' +   // 3 #767676
     '\red74\green74\blue74;' +      // 4 #4a4a4a
-    '\red202\green215\blue230;' +   // 5 #CAD7E6
-    '\red228\green235\blue244;' +   // 6 #E4EBF4
+    '\red252\green252\blue252;' +   // 5 #fcfcfc: the current match - painted by the form
+    '\red252\green252\blue252;' +   // 6 #fcfcfc: the other matches
     '\red36\green36\blue36;}';      // 7 #242424
 
 type
@@ -329,7 +335,7 @@ end;
 // Every match is numbered in document order; Starts gets its position.
 // Result - the number of the paragraph's first match; -1 when cleaning left none.
 function WriteHighlightedText(W: TRtfWriter; const Text: string;
-  const Highlights: TArray<TSearchHighlight>; Focus: Integer; Starts: TList<Integer>): Integer;
+  const Highlights: TArray<TSearchHighlight>; Focus: Integer; Starts, Lens: TList<Integer>): Integer;
 var
   H: TSearchHighlight;
   Pos: Integer;
@@ -348,6 +354,7 @@ begin
     W.Raw('{' + Group + ' ');
     W.Text(Copy(Text, H.StartOffset + 1, H.Len));
     W.Raw('}');
+    Lens.Add(W.Chars - Starts.Last);
     Pos := H.StartOffset + H.Len;
   end;
   W.Text(Copy(Text, Pos + 1, MaxInt));
@@ -441,7 +448,7 @@ var
   W: TRtfWriter;
   HitIndex: TDictionary<Integer, Integer>;     // LogicalIndex -> index in Highlight.Hits
   Ranges: TList<TParagraphRange>;
-  Starts: TList<Integer>;
+  Starts, Lens: TList<Integer>;
   P: TParagraphContent;
   R: TParagraphRange;
   Marker, Title: string;
@@ -461,6 +468,7 @@ begin
   HitIndex := TDictionary<Integer, Integer>.Create;
   Ranges := TList<TParagraphRange>.Create;
   Starts := TList<Integer>.Create;
+  Lens := TList<Integer>.Create;
   try
     for I := 0 to High(Highlight.Hits) do
       HitIndex.AddOrSetValue(Highlight.Hits[I].LogicalIndex, I);
@@ -488,7 +496,7 @@ begin
       if HitIndex.TryGetValue(R.LogicalIndex, HitAt) then
       begin
         Result.HitFirstMatch[HitAt] :=
-          WriteHighlightedText(W, Title, Highlight.Hits[HitAt].Highlights, Highlight.Focus, Starts);
+          WriteHighlightedText(W, Title, Highlight.Hits[HitAt].Highlights, Highlight.Focus, Starts, Lens);
         Result.HitStarts[HitAt] := FirstMatchStart(Highlight.Hits[HitAt].Highlights, R.StartChar, R.Len);
       end
       else
@@ -532,7 +540,7 @@ begin
       if HitIndex.TryGetValue(R.LogicalIndex, HitAt) then
       begin
         Result.HitFirstMatch[HitAt] :=
-          WriteHighlightedText(W, P.Text, Highlight.Hits[HitAt].Highlights, Highlight.Focus, Starts);
+          WriteHighlightedText(W, P.Text, Highlight.Hits[HitAt].Highlights, Highlight.Focus, Starts, Lens);
         Result.HitStarts[HitAt] := FirstMatchStart(Highlight.Hits[HitAt].Highlights, R.StartChar, R.Len);
       end
       else
@@ -545,7 +553,9 @@ begin
     Result.ExpectedChars := W.Chars;
     Result.Paragraphs := Ranges.ToArray;
     Result.MatchStarts := Starts.ToArray;
+    Result.MatchLens := Lens.ToArray;
   finally
+    Lens.Free;
     Starts.Free;
     Ranges.Free;
     HitIndex.Free;
@@ -560,7 +570,7 @@ var
   W: TRtfWriter;
   HitIndex: TDictionary<Integer, Integer>;     // VerseNumber -> index in Highlight.Hits
   Ranges: TList<TParagraphRange>;
-  Starts: TList<Integer>;
+  Starts, Lens: TList<Integer>;
   V: TVerseContent;
   R: TParagraphRange;
   Marker: string;
@@ -580,6 +590,7 @@ begin
   HitIndex := TDictionary<Integer, Integer>.Create;
   Ranges := TList<TParagraphRange>.Create;
   Starts := TList<Integer>.Create;
+  Lens := TList<Integer>.Create;
   try
     for I := 0 to High(Highlight.Hits) do
       HitIndex.AddOrSetValue(Highlight.Hits[I].VerseNumber, I);
@@ -608,7 +619,7 @@ begin
       if HitIndex.TryGetValue(R.LogicalIndex, HitAt) then
       begin
         Result.HitFirstMatch[HitAt] :=
-          WriteHighlightedText(W, V.Text, Highlight.Hits[HitAt].Highlights, Highlight.Focus, Starts);
+          WriteHighlightedText(W, V.Text, Highlight.Hits[HitAt].Highlights, Highlight.Focus, Starts, Lens);
         Result.HitStarts[HitAt] := FirstMatchStart(Highlight.Hits[HitAt].Highlights, R.StartChar, R.Len);
       end
       else
@@ -621,7 +632,9 @@ begin
     Result.ExpectedChars := W.Chars;
     Result.Paragraphs := Ranges.ToArray;
     Result.MatchStarts := Starts.ToArray;
+    Result.MatchLens := Lens.ToArray;
   finally
+    Lens.Free;
     Starts.Free;
     Ranges.Free;
     HitIndex.Free;

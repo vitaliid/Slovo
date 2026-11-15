@@ -76,7 +76,7 @@ type
     FErrors: TList<TResultError>;
     FLoaded: TList<TChapterLoadedArgs>;
     FBibleLoaded: TList<TBibleChapterLoadedArgs>;
-    FReplies: TList<TSearchReply>;
+    FReplies: TList<TSearchSummary>;
     procedure WriteSettings(const Text: string);
     procedure CreateViewModel;
     function NodeIndex(Kind: TLibraryNodeKind; const ModuleId: string; const BookCode: string = ''): Integer;
@@ -103,8 +103,7 @@ type
     [Test] procedure Search_WholeLibrary_BothCallsWithEmptyScope;
     [Test] procedure Search_OnlyBooksChecked_NoBibleCall;
     [Test] procedure Search_BookError_FiresErrorAndSkipsBible;
-    [Test] procedure Search_NoMatches_NoWindowCalls;
-    [Test] procedure Search_Matches_FirstRowsByRelevanceOfModulesWithHits;
+    [Test] procedure Search_GivesCounts_ReadsNoRows;
     [Test] procedure FetchBookResults_NoActiveSearch_NoCall;
     [Test] procedure FetchBookResults_IsAWindowOfTheActiveSearch;
     [Test] procedure FetchBookResults_Error_FiresErrorAndGivesNoRows;
@@ -330,7 +329,7 @@ begin
   FErrors := TList<TResultError>.Create;
   FLoaded := TList<TChapterLoadedArgs>.Create;
   FBibleLoaded := TList<TBibleChapterLoadedArgs>.Create;
-  FReplies := TList<TSearchReply>.Create;
+  FReplies := TList<TSearchSummary>.Create;
 end;
 
 procedure TMainViewModelTests.TearDown;
@@ -365,7 +364,7 @@ begin
   FVM.OnErrorOccurred.Add(procedure(E: TResultError) begin FErrors.Add(E); end);
   FVM.OnChapterLoaded.Add(procedure(A: TChapterLoadedArgs) begin FLoaded.Add(A); end);
   FVM.OnBibleChapterLoaded.Add(procedure(A: TBibleChapterLoadedArgs) begin FBibleLoaded.Add(A); end);
-  FVM.OnSearchCompleted.Add(procedure(R: TSearchReply) begin FReplies.Add(R); end);
+  FVM.OnSearchCompleted.Add(procedure(R: TSearchSummary) begin FReplies.Add(R); end);
 end;
 
 function TMainViewModelTests.NodeIndex(Kind: TLibraryNodeKind; const ModuleId, BookCode: string): Integer;
@@ -608,7 +607,7 @@ begin
   // R4-01: no translation checked -> no SearchBible call at all.
   Assert.AreEqual(0, Integer(FSearch.BibleQueries.Count));
   Assert.AreEqual(1, Integer(FReplies.Count));
-  Assert.AreEqual(0, Integer(Length(FReplies[0].Bible.Items)));
+  Assert.AreEqual(0, Integer(Length(FReplies[0].Bible)));
 end;
 
 procedure TMainViewModelTests.Search_BookError_FiresErrorAndSkipsBible;
@@ -631,35 +630,20 @@ begin
   Result.Count := Count;
 end;
 
-procedure TMainViewModelTests.Search_NoMatches_NoWindowCalls;
+procedure TMainViewModelTests.Search_GivesCounts_ReadsNoRows;
 begin
   CreateViewModel;
   FVM.Start;
-  FVM.Search('жертва', True, False, False);
+  // B-34: a search only counts; the list reads its rows in windows afterwards.
+  FSearch.BookCounts := [BookHits('PP', 1, 3), BookHits('PP', 3, 1), BookHits('DA', 2, 1)];
+  FVM.Search('жертва', True, False, True);
+  Assert.AreEqual(1, Integer(FReplies.Count));
+  Assert.AreEqual(3, Integer(Length(FReplies[0].Books)));
+  Assert.AreEqual(3, FReplies[0].Books[0].Count);
+  Assert.AreEqual(0, Integer(Length(FReplies[0].Bible)));
+  Assert.AreEqual('жертва', FReplies[0].Query.Text);
   Assert.AreEqual(0, Integer(FSearch.BookWindows.Count));
   Assert.AreEqual(0, Integer(FSearch.BibleWindows.Count));
-  Assert.AreEqual(1, Integer(FReplies.Count));
-  Assert.IsFalse(FReplies[0].Books.Truncated);
-end;
-
-procedure TMainViewModelTests.Search_Matches_FirstRowsByRelevanceOfModulesWithHits;
-begin
-  CreateViewModel;
-  FVM.Start;
-  // B-34: counts first; then one window by relevance over the modules that have matches.
-  FSearch.BookCounts := [BookHits('PP', 1, 3), BookHits('PP', 3, 1), BookHits('DA', 2, 1)];
-  FSearch.BookRows := [Default(TBookSearchResult)];
-  FVM.Search('жертва', True, False, True);
-  Assert.AreEqual(1, Integer(FSearch.BookWindows.Count));
-  Assert.AreEqual(2, Integer(Length(FSearch.BookWindowQueries[0].ModuleIds)));
-  Assert.AreEqual('PP', string(FSearch.BookWindowQueries[0].ModuleIds[0]));
-  Assert.AreEqual('DA', string(FSearch.BookWindowQueries[0].ModuleIds[1]));
-  Assert.IsTrue(FSearch.BookWindowQueries[0].WordForms);
-  Assert.IsTrue(FSearch.BookWindows[0].Order = soRelevance);
-  Assert.AreEqual(0, FSearch.BookWindows[0].Offset);
-  Assert.AreEqual(DefaultMaxResults, FSearch.BookWindows[0].Count);
-  Assert.AreEqual(1, Integer(Length(FReplies[0].Books.Items)));
-  Assert.IsTrue(FReplies[0].Books.Truncated, '5 matches, 1 row shown');
 end;
 
 procedure TMainViewModelTests.FetchBookResults_NoActiveSearch_NoCall;

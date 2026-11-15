@@ -30,8 +30,8 @@ const
   ColorMarker      = TColor($008A8A8A);   // #8a8a8a
   ColorAccent      = TColor($00A86E3C);   // #3c6ea8
   ColorAccentHover = TColor($00955F2F);   // #2f5f95
-  ColorHitCurrent  = TColor($00E6D7CA);   // #CAD7E6
-  ColorHitOther    = TColor($00F4EBE4);   // #E4EBF4
+  ColorHitCurrent  = TColor($0066D4FF);   // #FFD466: the match being looked at - amber, unlike the others
+  ColorHitOther    = TColor($00F2E6DC);   // #DCE6F2
   ColorBannerBack  = TColor($00E5F4FF);   // #fff4e5
   ColorBannerText  = TColor($001E4B5C);   // #5c4b1e
 
