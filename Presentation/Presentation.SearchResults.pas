@@ -12,12 +12,26 @@
   Reference line (A.4): "Патріархи і пророки · Розділ 3 · 71.2" - the page
   part only when the book has a page system; Bible: "Буття 22:8". "Розділ N"
   is a localized string, so the form passes it in as ChapterLabel - this unit
-  knows neither the localizer nor the form. *)
+  knows neither the localizer nor the form.
+
+  TSearchResultsModel (E-19, E-20; B-34) is the list that replaces the flat
+  page: built from the COUNTS of a search, it knows every row of the list
+  before a single snippet is read, and reads the rows in windows of PageSize
+  when the list asks for them.
+    soText ("за книгами"): a block per book in library order - a heading per
+      chapter with matches, the matches under it in text order, the reference
+      of a row only its page "71.2"; the Bible: a block per translation,
+      headings - its books, the reference "22:8".
+    soRelevance: the books - one block per language without a caption (ranks
+      of different tables are not comparable, B-31), the full reference in
+      every row; the Bible - a block per translation.
+  A block is what folds in the list; headings do not fold. *)
 
 interface
 
 uses
   System.SysUtils,
+  System.Generics.Collections,
   Core.Domain,
   Core.Catalog,
   Presentation.MainViewModel;
@@ -64,10 +78,93 @@ function BuildResultSections(const Reply: TSearchReply; Catalog: TLibraryCatalog
 function ResultCount(const Reply: TSearchReply): Integer;
 function ResultTruncated(const Reply: TSearchReply): Boolean;
 
+// ---------------------------------------------------------------------------
+// The grouped list (E-19, E-20; B-34)
+
+type
+  TResultLineKind = (rlHeading, rlHit);
+
+  // One row of a block.
+  TResultLine = record
+    Kind: TResultLineKind;
+    Loaded: Boolean;                    // rlHit: False = its window gave no such row
+    RefText: string;                    // rlHeading: the caption; rlHit: the reference
+    Runs: TArray<TTextRun>;
+    BookRef: TParagraphRef;             // rlHit of rsBooks
+    BibleRef: TVerseRef;                // rlHit of rsBible
+  end;
+
+  TResultHeading = record
+    Caption: string;                    // "3 · Спокуса і падіння" / "Буття"
+    Row: Integer;                       // its row in the block
+    FirstHit: Integer;                  // matches of the block before it
+  end;
+
+  // What folds: a book, a translation; in the relevance view of the books -
+  // one language group (Caption = '': it has no row of its own).
+  TResultBlock = record
+    Caption: string;
+    ModuleIds: TArray<TModuleId>;
+    HitCount: Integer;
+    RowCount: Integer;                  // HitCount + Length(Headings)
+    Headings: TArray<TResultHeading>;   // soText only
+  end;
+
+  TResultPart = record
+    Kind: TResultSectionKind;
+    Blocks: TArray<TResultBlock>;
+  end;
+
+  TFetchBookRowsFunc = reference to function(const ModuleIds: TArray<TModuleId>;
+    Order: TSearchOrder; Offset, Count: Integer): TArray<TBookSearchResult>;
+  TFetchBibleRowsFunc = reference to function(const ModuleIds: TArray<TModuleId>;
+    Order: TSearchOrder; Offset, Count: Integer): TArray<TBibleSearchResult>;
+
+  TSearchResultsModel = class
+  private
+    FCatalog: TLibraryCatalog;          // not owned
+    FOrder: TSearchOrder;
+    FChapterLabel: TChapterLabelFunc;
+    FFetchBooks: TFetchBookRowsFunc;
+    FFetchBible: TFetchBibleRowsFunc;
+    FParts: TArray<TResultPart>;
+    FTotalHits: Integer;
+    FBookPages: TDictionary<string, TArray<TBookSearchResult>>;
+    FBiblePages: TDictionary<string, TArray<TBibleSearchResult>>;
+
+    function ModuleTitle(const Id: TModuleId): string;
+    function InLibraryOrder(const Ids, ModuleOrder: TArray<TModuleId>): TArray<TModuleId>;
+    function LanguageGroups(const Ids: TArray<TModuleId>): TArray<TArray<TModuleId>>;
+    procedure BuildBooks(const Counts: TArray<TBookHitCount>; const ModuleOrder: TArray<TModuleId>);
+    procedure BuildBible(const Counts: TArray<TBibleHitCount>; const ModuleOrder: TArray<TModuleId>);
+    function HeadingAt(const Block: TResultBlock; Row: Integer): Integer;
+    procedure FillBookHit(Part, Block, Hit: Integer; var Line: TResultLine);
+    procedure FillBibleHit(Part, Block, Hit: Integer; var Line: TResultLine);
+  public
+    const PageSize = 50;                // rows in one window (B-34)
+
+    // ModuleOrder: the modules as the library tree lists them (B-25); a module
+    // missing there goes after the listed ones.
+    constructor Create(const BookCounts: TArray<TBookHitCount>; const BibleCounts: TArray<TBibleHitCount>;
+      Catalog: TLibraryCatalog; const ModuleOrder: TArray<TModuleId>; Order: TSearchOrder;
+      const ChapterLabel: TChapterLabelFunc; const FetchBooks: TFetchBookRowsFunc;
+      const FetchBible: TFetchBibleRowsFunc);
+    destructor Destroy; override;
+
+    // Row of a block; reads its window on first use. Out of range - a hit not Loaded.
+    function Line(Part, Block, Row: Integer): TResultLine;
+    // The pinned line over the list (E-19): the block and the heading of the row -
+    // "Патріархи і пророки · 3 · Спокуса і падіння", "Огієнко · Буття".
+    function PinnedText(Part, Block, Row: Integer): string;
+
+    property Parts: TArray<TResultPart> read FParts;   // empty parts are left out
+    property Order: TSearchOrder read FOrder;
+    property TotalHits: Integer read FTotalHits;       // the status line "Збіги: N"
+  end;
+
 implementation
 
 uses
-  System.Generics.Collections,
   System.Generics.Defaults,
   System.Math;
 
@@ -219,6 +316,373 @@ end;
 function ResultTruncated(const Reply: TSearchReply): Boolean;
 begin
   Result := Reply.Books.Truncated or Reply.Bible.Truncated;
+end;
+
+{ TSearchResultsModel }
+
+procedure AddOnce(var Ids: TArray<TModuleId>; const Id: TModuleId);
+var
+  Known: TModuleId;
+begin
+  for Known in Ids do
+    if Known = Id then
+      Exit;
+  Ids := Ids + [Id];
+end;
+
+function HasId(const Ids: TArray<TModuleId>; const Id: TModuleId): Boolean;
+var
+  Known: TModuleId;
+begin
+  Result := False;
+  for Known in Ids do
+    if Known = Id then
+      Exit(True);
+end;
+
+constructor TSearchResultsModel.Create(const BookCounts: TArray<TBookHitCount>;
+  const BibleCounts: TArray<TBibleHitCount>; Catalog: TLibraryCatalog;
+  const ModuleOrder: TArray<TModuleId>; Order: TSearchOrder; const ChapterLabel: TChapterLabelFunc;
+  const FetchBooks: TFetchBookRowsFunc; const FetchBible: TFetchBibleRowsFunc);
+begin
+  inherited Create;
+  FCatalog := Catalog;
+  FOrder := Order;
+  FChapterLabel := ChapterLabel;
+  FFetchBooks := FetchBooks;
+  FFetchBible := FetchBible;
+  FBookPages := TDictionary<string, TArray<TBookSearchResult>>.Create;
+  FBiblePages := TDictionary<string, TArray<TBibleSearchResult>>.Create;
+  BuildBooks(BookCounts, ModuleOrder);
+  BuildBible(BibleCounts, ModuleOrder);
+end;
+
+destructor TSearchResultsModel.Destroy;
+begin
+  FBiblePages.Free;
+  FBookPages.Free;
+  inherited;
+end;
+
+function TSearchResultsModel.ModuleTitle(const Id: TModuleId): string;
+var
+  M: TModule;
+begin
+  if FCatalog.FindModule(Id, M) then
+    Result := M.Title
+  else
+    Result := string(Id);
+end;
+
+function TSearchResultsModel.InLibraryOrder(const Ids, ModuleOrder: TArray<TModuleId>): TArray<TModuleId>;
+var
+  Id: TModuleId;
+begin
+  Result := nil;
+  for Id in ModuleOrder do
+    if HasId(Ids, Id) then
+      AddOnce(Result, Id);
+  for Id in Ids do
+    AddOnce(Result, Id);
+end;
+
+// Groups in the order uk, ru, en, then the rest by code (B-31); inside a group
+// the modules keep the order of Ids.
+function TSearchResultsModel.LanguageGroups(const Ids: TArray<TModuleId>): TArray<TArray<TModuleId>>;
+
+  function Rank(const Language: string): Integer;
+  begin
+    if Language = 'uk' then
+      Result := 0
+    else if Language = 'ru' then
+      Result := 1
+    else if Language = 'en' then
+      Result := 2
+    else
+      Result := 3;
+  end;
+
+  function Before(const L, R: string): Boolean;
+  begin
+    if Rank(L) <> Rank(R) then
+      Result := Rank(L) < Rank(R)
+    else
+      Result := CompareStr(L, R) < 0;
+  end;
+
+var
+  Languages: TArray<string>;
+  Id: TModuleId;
+  M: TModule;
+  Language: string;
+  I, J: Integer;
+begin
+  Result := nil;
+  Languages := nil;
+  for Id in Ids do
+  begin
+    if FCatalog.FindModule(Id, M) then
+      Language := M.Language
+    else
+      Language := '';
+    J := -1;
+    for I := 0 to High(Languages) do
+      if Languages[I] = Language then
+        J := I;
+    if J < 0 then
+    begin
+      J := Length(Languages);
+      SetLength(Languages, J + 1);
+      SetLength(Result, J + 1);
+      while (J > 0) and Before(Language, Languages[J - 1]) do
+      begin
+        Languages[J] := Languages[J - 1];
+        Result[J] := Result[J - 1];
+        Dec(J);
+      end;
+      Languages[J] := Language;
+      Result[J] := nil;
+    end;
+    Result[J] := Result[J] + [Id];
+  end;
+end;
+
+procedure TSearchResultsModel.BuildBooks(const Counts: TArray<TBookHitCount>;
+  const ModuleOrder: TArray<TModuleId>);
+var
+  Part: TResultPart;
+  Ids, Group: TArray<TModuleId>;
+  C: TBookHitCount;
+  Id: TModuleId;
+  Block: TResultBlock;
+  H: TResultHeading;
+  Ref: TChapterRef;
+  Title: string;
+begin
+  Ids := nil;
+  for C in Counts do
+    if C.Count > 0 then
+    begin
+      AddOnce(Ids, C.ModuleId);
+      Inc(FTotalHits, C.Count);
+    end;
+  if Length(Ids) = 0 then
+    Exit;
+  Ids := InLibraryOrder(Ids, ModuleOrder);
+
+  Part := Default(TResultPart);
+  Part.Kind := rsBooks;
+  if FOrder = soText then
+    for Id in Ids do
+    begin
+      Block := Default(TResultBlock);
+      Block.Caption := ModuleTitle(Id);
+      Block.ModuleIds := [Id];
+      // The counts of a module come by ChapterOrder - the order of its window (B-34).
+      for C in Counts do
+        if (C.ModuleId = Id) and (C.Count > 0) then
+        begin
+          Ref.ModuleId := Id;
+          Ref.ChapterOrder := C.ChapterOrder;
+          Title := FCatalog.ChapterTitle(Ref);
+          if Title = '' then
+            H.Caption := FChapterLabel(C.ChapterOrder)
+          else
+            H.Caption := Format('%d · %s', [C.ChapterOrder, Title]);
+          H.Row := Block.RowCount;
+          H.FirstHit := Block.HitCount;
+          Block.Headings := Block.Headings + [H];
+          Inc(Block.HitCount, C.Count);
+          Inc(Block.RowCount, C.Count + 1);
+        end;
+      Part.Blocks := Part.Blocks + [Block];
+    end
+  else
+    for Group in LanguageGroups(Ids) do
+    begin
+      Block := Default(TResultBlock);
+      Block.ModuleIds := Group;
+      for C in Counts do
+        if (C.Count > 0) and HasId(Group, C.ModuleId) then
+          Inc(Block.HitCount, C.Count);
+      Block.RowCount := Block.HitCount;
+      Part.Blocks := Part.Blocks + [Block];
+    end;
+  FParts := FParts + [Part];
+end;
+
+procedure TSearchResultsModel.BuildBible(const Counts: TArray<TBibleHitCount>;
+  const ModuleOrder: TArray<TModuleId>);
+var
+  Part: TResultPart;
+  Ids: TArray<TModuleId>;
+  C: TBibleHitCount;
+  Id: TModuleId;
+  Block: TResultBlock;
+  H: TResultHeading;
+  Book: TBookRef;
+begin
+  Ids := nil;
+  for C in Counts do
+    if C.Count > 0 then
+    begin
+      AddOnce(Ids, C.ModuleId);
+      Inc(FTotalHits, C.Count);
+    end;
+  if Length(Ids) = 0 then
+    Exit;
+  Ids := InLibraryOrder(Ids, ModuleOrder);
+
+  Part := Default(TResultPart);
+  Part.Kind := rsBible;
+  for Id in Ids do
+  begin
+    Block := Default(TResultBlock);
+    Block.Caption := ModuleTitle(Id);
+    Block.ModuleIds := [Id];
+    // The counts of a translation come by OrderInModule - the order of its window.
+    for C in Counts do
+      if (C.ModuleId = Id) and (C.Count > 0) then
+      begin
+        if FOrder = soText then
+        begin
+          Book.ModuleId := Id;
+          Book.BookCode := C.BookCode;
+          H.Caption := FCatalog.BookTitle(Book);
+          if H.Caption = '' then
+            H.Caption := string(C.BookCode);
+          H.Row := Block.RowCount;
+          H.FirstHit := Block.HitCount;
+          Block.Headings := Block.Headings + [H];
+          Inc(Block.RowCount);
+        end;
+        Inc(Block.HitCount, C.Count);
+        Inc(Block.RowCount, C.Count);
+      end;
+    Part.Blocks := Part.Blocks + [Block];
+  end;
+  FParts := FParts + [Part];
+end;
+
+// The last heading at or above Row; the first row of a block with headings is one.
+function TSearchResultsModel.HeadingAt(const Block: TResultBlock; Row: Integer): Integer;
+var
+  Lo, Hi, Mid: Integer;
+begin
+  Lo := 0;
+  Hi := High(Block.Headings);
+  while Lo < Hi do
+  begin
+    Mid := (Lo + Hi + 1) div 2;
+    if Block.Headings[Mid].Row <= Row then
+      Lo := Mid
+    else
+      Hi := Mid - 1;
+  end;
+  Result := Lo;
+end;
+
+function TSearchResultsModel.Line(Part, Block, Row: Integer): TResultLine;
+var
+  B: TResultBlock;
+  H, Hit: Integer;
+begin
+  Result := Default(TResultLine);
+  Result.Kind := rlHit;
+  if (Part < 0) or (Part > High(FParts)) or (Block < 0) or (Block > High(FParts[Part].Blocks)) then
+    Exit;
+  B := FParts[Part].Blocks[Block];
+  if (Row < 0) or (Row >= B.RowCount) then
+    Exit;
+  Hit := Row;
+  if Length(B.Headings) > 0 then
+  begin
+    H := HeadingAt(B, Row);
+    if B.Headings[H].Row = Row then
+    begin
+      Result.Kind := rlHeading;
+      Result.Loaded := True;
+      Result.RefText := B.Headings[H].Caption;
+      Exit;
+    end;
+    Hit := B.Headings[H].FirstHit + (Row - B.Headings[H].Row - 1);
+  end;
+  if FParts[Part].Kind = rsBooks then
+    FillBookHit(Part, Block, Hit, Result)
+  else
+    FillBibleHit(Part, Block, Hit, Result);
+end;
+
+procedure TSearchResultsModel.FillBookHit(Part, Block, Hit: Integer; var Line: TResultLine);
+var
+  Key: string;
+  Items: TArray<TBookSearchResult>;
+  Item: TBookSearchResult;
+  Page: Integer;
+begin
+  Page := Hit div PageSize;
+  Key := Format('%d:%d:%d', [Part, Block, Page]);
+  if not FBookPages.TryGetValue(Key, Items) then
+  begin
+    Items := nil;
+    if Assigned(FFetchBooks) then
+      Items := FFetchBooks(FParts[Part].Blocks[Block].ModuleIds, FOrder, Page * PageSize, PageSize);
+    // Kept even when empty: a failed window is not asked for on every repaint.
+    FBookPages.Add(Key, Items);
+  end;
+  if Hit mod PageSize > High(Items) then
+    Exit;
+  Item := Items[Hit mod PageSize];
+  Line.Loaded := True;
+  Line.BookRef := Item.Ref;
+  Line.Runs := SplitRuns(Item.Snippet, Item.Highlights);
+  if FOrder = soRelevance then
+    Line.RefText := BookResultRef(FCatalog, Item, FChapterLabel)
+  else if Item.PageNumber > 0 then
+    Line.RefText := Format('%d.%d', [Item.PageNumber, Item.ParagraphOnPage])
+  else
+    Line.RefText := '';                      // the book and the chapter stand above
+end;
+
+procedure TSearchResultsModel.FillBibleHit(Part, Block, Hit: Integer; var Line: TResultLine);
+var
+  Key: string;
+  Items: TArray<TBibleSearchResult>;
+  Item: TBibleSearchResult;
+  Page: Integer;
+begin
+  Page := Hit div PageSize;
+  Key := Format('%d:%d:%d', [Part, Block, Page]);
+  if not FBiblePages.TryGetValue(Key, Items) then
+  begin
+    Items := nil;
+    if Assigned(FFetchBible) then
+      Items := FFetchBible(FParts[Part].Blocks[Block].ModuleIds, FOrder, Page * PageSize, PageSize);
+    FBiblePages.Add(Key, Items);
+  end;
+  if Hit mod PageSize > High(Items) then
+    Exit;
+  Item := Items[Hit mod PageSize];
+  Line.Loaded := True;
+  Line.BibleRef := Item.Ref;
+  Line.Runs := SplitRuns(Item.Snippet, Item.Highlights);
+  if FOrder = soRelevance then
+    Line.RefText := BibleResultRef(FCatalog, Item)
+  else
+    Line.RefText := Format('%d:%d', [Item.Ref.Chapter.ChapterNumber, Item.Ref.VerseNumber]);
+end;
+
+function TSearchResultsModel.PinnedText(Part, Block, Row: Integer): string;
+var
+  B: TResultBlock;
+begin
+  Result := '';
+  if (Part < 0) or (Part > High(FParts)) or (Block < 0) or (Block > High(FParts[Part].Blocks)) then
+    Exit;
+  B := FParts[Part].Blocks[Block];
+  Result := B.Caption;
+  if (Length(B.Headings) > 0) and (Row >= 0) and (Row < B.RowCount) then
+    Result := Result + ' · ' + B.Headings[HeadingAt(B, Row)].Caption;
 end;
 
 end.
