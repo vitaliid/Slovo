@@ -10,6 +10,8 @@
 >
 > **Ревізія R6 — 2026-10-30 (рішення Vitalii, закриття аудиту R4).** **B-31 — форми слова через Snowball усередині SQLite:** власна `sqlite3.dll` з токенізатором `fts5-snowball`; поруч із точними `ParagraphsFTS`/`VersesFTS` — **стемовані таблиці на кожну мову** (`ParagraphsStem_<lang>`, `VersesStem_<lang>`, зокрема `VersesStem_uk` з українським стемером Snowball). `WordForms` вибирає таблицю (B-28 переглянуто, префікс `mmPrefix` знову лише резерв для `CountPrefix`). Новий метод `FindInChapter` — збіги в главі з того самого індексу (E-08). Перевірки виду модуля в SQL немає (R4-23). Нерозривні пробіли й таби запиту — пробіл до `Trim` (R4-52). Дублювання з `Slovo_01` прибрано (R4-54): обґрунтування рішень реєстру — там, тут лише схема й механіка.
 
+> **Ревізія R7 — 2026-11-15 (B-34, рішення Vitalii).** Пошук у два кроки: запит підрахунку `COUNT(*) … GROUP BY` по всіх збігах і запит вікна `LIMIT … OFFSET …` у порядку тексту або `rank`. Загального ліміту й `Truncated` більше немає.
+
 Продовження [01 — Домен і контракти](Slovo_01_Domain_and_Contracts.md). Тут — SQLite-схема бібліотечної бази, параметри конекції та пошукові запити.
 
 ---
@@ -379,14 +381,28 @@ WHERE ModuleId = :m AND BookCode = :b AND ChapterNumber = :c ORDER BY VerseNumbe
 
 `Fts5SearchIndex` отримує каталог у конструкторі (мова кожного модуля — `TModule.Language`) і для кожного виклику будує **список таблиць**:
 
-| `WordForms` | Книги (`SearchBook`) | Біблія (`SearchBible`) |
+| `WordForms` | Книги (`CountBook`, `SearchBook`) | Біблія (`CountBible`, `SearchBible`) |
 |---|---|---|
 | `False` | `ParagraphsFTS` — один запит | `VersesFTS` — один запит |
 | `True` | `ParagraphsStem_<lang>` — **по запиту на кожну мову** серед модулів скоупу | `VersesStem_<lang>` — по запиту на мову |
 
-Модулі скоупу (`ModuleIds`, або всі модулі виду, якщо масив порожній) групуються за `Language`; кожна група — свій запит зі своїм `IN (…)` і своїм `LIMIT`. Результати склеюються **групами** в `TSearchPage.Items` — у порядку мов `uk`, `ru`, `en`, далі решта за алфавітом коду — кожна група в порядку `bm25` своєї таблиці; ранги між таблицями не порівнюються (View 4 показує групи окремо). `Truncated = True`, якщо обрізано хоч одну групу. У MVP переклад = мова, тож для Біблії групи мов збігаються з групами перекладів.
+**Підрахунок** (`Count*`): модулі скоупу (`ModuleIds`, або всі модулі виду, якщо масив порожній) групуються за `Language`; кожна група — свій запит зі своїм `IN (…)`; рядки всіх груп складаються в один масив (кожен модуль — лише в одній групі). **Вікно** (`Search*`): усі модулі запиту — однієї таблиці, запит один (B-34); різні таблиці в одному вікні — `reInvalidQuery`. У MVP переклад = мова, тож для Біблії група мови збігається з перекладом.
 
-### Запит — приклад (книги)
+### Крок 1 — підрахунок (R7, B-34)
+
+```sql
+SELECT p.ModuleId, p.ChapterOrder, COUNT(*)      -- → TBookHitCount
+FROM T                          -- ParagraphsFTS або ParagraphsStem_<lang> (таблиця вище)
+JOIN Paragraphs p ON p.Id = T.rowid
+WHERE T MATCH :match
+  AND p.ModuleId IN (:m1, :m2, :m3)   -- B-27; при «уся бібліотека» в точній таблиці умова НЕ додається
+GROUP BY p.ModuleId, p.ChapterOrder
+ORDER BY p.ModuleId, p.ChapterOrder;
+```
+
+Для Біблії — `v.ModuleId, v.BookCode, COUNT(*)` з `JOIN Books b ON b.ModuleId = v.ModuleId AND b.BookCode = v.BookCode`, `GROUP BY v.ModuleId, v.BookCode ORDER BY v.ModuleId, b.OrderInModule` → `TBibleHitCount`. Без `snippet()` і без `rank` — це перебір збігів з агрегацією, найдешевше, що FTS5 може зробити з повним набором.
+
+### Крок 2 — вікно рядків (R7, B-34), приклад для книг
 
 ```sql
 SELECT
@@ -396,25 +412,25 @@ SELECT
   p.StartPageNumber,            -- B-23: → TBookSearchResult.PageNumber
   p.ParagraphOnPage,            -- B-23: → TBookSearchResult.ParagraphOnPage
   snippet(T, 0, char(2), char(3), '…', 8) AS Snippet
-FROM T                          -- ParagraphsFTS або ParagraphsStem_<lang> (таблиця вище)
+FROM T
 JOIN Paragraphs p ON p.Id = T.rowid
 WHERE T MATCH :match
-  AND p.ModuleId IN (:m1, :m2, :m3)   -- B-27: рівно Length(група) плейсхолдерів;
-                                      -- при «уся бібліотека» в точній таблиці умова НЕ додається
-ORDER BY rank
-LIMIT :maxResultsPlusOne;         -- B-19: MaxResults + 1 — зайвий рядок = ознака Truncated
+  AND p.ModuleId IN (:m1, …)          -- у вікні — завжди; значення прив'язуються окремо
+ORDER BY p.ChapterOrder, p.LogicalIndex   -- soText (один модуль)
+-- ORDER BY rank                          -- soRelevance
+LIMIT :count OFFSET :offset;
 ```
 
 **Множина модулів (B-27).** Значення `ModuleId` прив'язуються кожне окремо — жодної конкатенації у SQL. Список короткий (≈45 модулів, оцінка IMP-3), ліміт параметрів SQLite недосяжний. Перевірки виду модуля немає (R6, R4-23): ViewModel розкладає скоуп за каталогом, а модуль не того виду в `IN (…)` просто дав би нуль рядків — він не має рядків у цій таблиці. Фільтр `IN (…)` застосовується **після** FTS5-збігу; якщо профілювання колись покаже вартість — `ModuleId UNINDEXED` у FTS-таблицях (post-MVP).
 
 **Решта правил запиту:**
 
-1. **`LIMIT :maxResults`** доходить до SQL (B-19); `MaxResults ≤ 0` нормалізується до `DefaultMaxResults = 200` **до** прив'язки (у SQLite `LIMIT 0` — нуль рядків); прив'язується `MaxResults + 1` → `Truncated`.
+1. **`LIMIT :count OFFSET :offset`** — вікно (B-34). `Count ≤ 0` — порожній масив без запиту (у SQLite `LIMIT 0` — нуль рядків, від'ємний — «без ліміту»). Загального ліміту немає: `snippet()` рахується лише для рядків вікна.
 2. **`char(2)`/`char(3)` замість `'<b>'`/`'</b>'`.** `Fts5SearchIndex` вирізає ці службові символи й віддає `Snippet` чистим текстом плюс `Highlights` з межами підсвітки.
 3. **Назва глави в запиті не вибирається** — мапінг `ChapterOrder → Title` дає каталог (B-20, B-29).
-4. **`ORDER BY rank` (bm25)** вирішує **склад** видачі; порядок показу — справа View 4 (секції й групи, перемикача порядку в MVP немає). Перший `sqlite3_step` сортує весь набір збігів — `LIMIT` єдине, що обмежує вартість запиту.
+4. **Порядок — параметр вікна** (`TSearchOrder`): `soText` — адреса в книзі, `soRelevance` — `rank` (bm25). Кожне вікно сортує весь набір збігів своїх модулів заново (стану між викликами немає, C-08); далекий `OFFSET` коштує стільки ж, скільки близький, — сортування, не читання рядків.
 
-Аналогічний запит для `VersesFTS` / `VersesStem_<lang>` + `Verses` → `TBibleSearchResult` (`v.ModuleId, v.BookCode, v.ChapterNumber, v.VerseNumber` у `SELECT`).
+Аналогічний запит для `VersesFTS` / `VersesStem_<lang>` + `Verses` → `TBibleSearchResult` (`v.ModuleId, v.BookCode, v.ChapterNumber, v.VerseNumber` у `SELECT`); `soText` — `JOIN Books b … ORDER BY b.OrderInModule, v.ChapterNumber, v.VerseNumber`.
 
 ### Збіги в главі — `FindInChapter` / `FindInBibleChapter` (R6, E-08)
 

@@ -10,6 +10,8 @@
 >
 > **Ревізія R6 — 2026-10-30 (закриття аудиту R4).** **Власна `sqlite3.dll` з `fts5-snowball`** — форми слова (B-31): D-08 переглянуто, фаза 0 перевіряє ще й токенізатор (`startup.wrongSqlite`). `Fts5SearchIndex` отримує каталог (мови модулів). Порожній запит і порожній скоуп перевіряє форма — рядок стану, не банер (R4-24); A.5 оновлено. Глава з активним пошуком — `FindInChapter` (E-08), A.4 оновлено. Шрифти — лише EB Garamond, 3 файли, без `RemoveFontResourceEx` (E-04). `Save` налаштувань — при виході й при зміні глави (R4-27). Тести (Частина C) — під стемовані таблиці. Обґрунтування рішень реєстру тут лише там, де це View — їхнє джерело (R4-54).
 
+> **Ревізія R7 — 2026-11-15 (B-34).** Сценарій пошуку A.5: `Search` лише рахує збіги (`CountBook`/`CountBible`), рядки видачі форма бере вікнами під час гортання (`FetchBookResults`/`FetchBibleResults`). Ліміту й `Truncated` немає.
+
 Продовження [01 — Домен і контракти](Slovo_01_Domain_and_Contracts.md) та [02 — Сховище: SQLite + FTS5](Slovo_02_Storage_SQLite_FTS5.md). Тут — композиційний корінь, потоки виконання і як усе це розгортається на диску користувача.
 
 ---
@@ -272,9 +274,12 @@ type
 
     // ISearchIndex — синхронний контракт Core (C-08). Кожен виклик: таблиці за
     // WordForms і мовами → TryBuildMatchQuery → MATCH … [AND ModuleId IN (…)]
-    // ORDER BY rank LIMIT N+1 на кожну таблицю → склейка групами. Без стану між викликами.
-    function SearchBook(const Query: TSearchQuery): TResult<TSearchPage<TBookSearchResult>>;
-    function SearchBible(const Query: TSearchQuery): TResult<TSearchPage<TBibleSearchResult>>;
+    // GROUP BY (Count*) на кожну таблицю або одне вікно LIMIT/OFFSET (Search*, B-34).
+    // Без стану між викликами.
+    function CountBook(const Query: TSearchQuery): TResult<TArray<TBookHitCount>>;
+    function CountBible(const Query: TSearchQuery): TResult<TArray<TBibleHitCount>>;
+    function SearchBook(const Query: TSearchQuery; const Window: TSearchWindow): TResult<TArray<TBookSearchResult>>;
+    function SearchBible(const Query: TSearchQuery; const Window: TSearchWindow): TResult<TArray<TBibleSearchResult>>;
     // E-08: той самий MATCH у межах однієї глави, highlight() замість snippet()
     function FindInChapter(const Query: TSearchQuery; const Ref: TChapterRef): TResult<TArray<TParagraphHit>>;
     function FindInBibleChapter(const Query: TSearchQuery; const Ref: TBibleChapterRef): TResult<TArray<TVerseHit>>;
@@ -348,10 +353,11 @@ sequenceDiagram
 
 1. Користувач набирає текст і тисне Enter або кнопку (live-пошуку в MVP немає).
 2. **Форма** (R6, R4-24): текст після заміни nbsp/табів і `Trim` порожній → рядок стану «введіть слово»; «Відмічені книги» без жодної відмітки → «відмітьте хоча б одну книгу». До ViewModel і бази нічого не йде, банера немає. Інакше — «Шукаю…» + `Update` цього контролу, `crHourGlass`, `ViewModel.Search` (курсор повертається в `finally`).
-3. ViewModel формує `TSearchQuery` (`ExactPhrase`, `WordForms`, `MaxResults`) і розкладає скоуп за видом через каталог: «Уся бібліотека» → `ModuleIds = []`; відмічені → окремо книги й переклади. **Порожній список виду → виклику немає, секція порожня** (R4-01).
-4. `Fts5SearchIndex.SearchBook`: таблиці за `WordForms` і мовами модулів (View 2, B-31) → `TryBuildMatchQuery` → `MATCH` на кожній таблиці → `ORDER BY rank LIMIT MaxResults + 1` → склейка групами в `TSearchPage` з `Truncated`. Потім так само `SearchBible`. Якщо перший повернув `roError`, другий не виконується.
-5. Успіх → `FActiveQuery := Query`, `FOnSearchCompleted.Fire(TSearchReply)` напряму.
-6. `roError` будь-якого з викликів → `FOnErrorOccurred.Fire(Error)` — той самий банер (A.6). Мапінг кодів SQLite (R3-10): `SQLITE_CORRUPT`/`SQLITE_NOTADB` → `reModuleCorrupted`, `SQLITE_IOERR`/`SQLITE_CANTOPEN` → `reIOFailure`, помилка синтаксису FTS5 (`SQLITE_ERROR` з текстом `fts5:`) → `reInvalidQuery`, решта → `reModuleCorrupted` з повним текстом у лозі.
+3. ViewModel формує `TSearchQuery` (`ExactPhrase`, `WordForms`) і розкладає скоуп за видом через каталог: «Уся бібліотека» → `ModuleIds = []`; відмічені → окремо книги й переклади. **Порожній список виду → виклику немає, секція порожня** (R4-01).
+4. `Fts5SearchIndex.CountBook` (R7, B-34): таблиці за `WordForms` і мовами модулів (View 2, B-31) → `TryBuildMatchQuery` → `MATCH … GROUP BY ModuleId, ChapterOrder` на кожній таблиці → один масив `TBookHitCount`. Потім так само `CountBible`. Якщо перший повернув `roError`, другий не виконується. Сніпети на цьому кроці не рахуються.
+5. Успіх → `FActiveQuery := Query`, `FOnSearchCompleted.Fire(TSearchSummary)` напряму — лічильники по главах і книгах Біблії.
+5a. **Рядки видачі — на вимогу** (R7, B-34): коли список малює рядок, якого ще немає, форма викликає `ViewModel.FetchBookResults`/`FetchBibleResults` (модулі, порядок, `Offset`, `Count`) → `ISearchIndex.SearchBook`/`SearchBible` з вікном — синхронно, у тому самому UI-потоці (C-21). Вікно — 50 рядків; отримані вікна тримає Presentation до наступного пошуку.
+6. `roError` будь-якого з викликів (і підрахунку, і вікна — тоді вікно лишається порожнім) → `FOnErrorOccurred.Fire(Error)` — той самий банер (A.6). Мапінг кодів SQLite (R3-10): `SQLITE_CORRUPT`/`SQLITE_NOTADB` → `reModuleCorrupted`, `SQLITE_IOERR`/`SQLITE_CANTOPEN` → `reIOFailure`, помилка синтаксису FTS5 (`SQLITE_ERROR` з текстом `fts5:`) → `reInvalidQuery`, решта → `reModuleCorrupted` з повним текстом у лозі.
 
 ```mermaid
 sequenceDiagram
@@ -367,20 +373,27 @@ sequenceDiagram
         F->>F: «Шукаю…» + Update · crHourGlass
         F->>VM: Search(Text, WholeLibrary, Exact, Forms)
         VM->>VM: ModuleIds за видом через каталог; порожній вид — без виклику (R4-01)
-        VM->>SI: SearchBook(Q)
+        VM->>SI: CountBook(Q)
         SI->>SI: таблиці: ParagraphsFTS або ParagraphsStem_lang (B-31)
         loop кожна таблиця
-            SI->>DB: MATCH ? [AND ModuleId IN (…)] ORDER BY rank LIMIT N+1
+            SI->>DB: MATCH ? [AND ModuleId IN (…)] GROUP BY ModuleId, ChapterOrder
         end
-        SI-->>VM: TResult<TSearchPage<TBookSearchResult>> — групами
-        VM->>SI: SearchBible(Q) — той самий шлях
-        SI-->>VM: TResult<TSearchPage<TBibleSearchResult>>
+        SI-->>VM: TResult<TArray<TBookHitCount>>
+        VM->>SI: CountBible(Q) — той самий шлях
+        SI-->>VM: TResult<TArray<TBibleHitCount>>
         alt roError у будь-якому
             VM-->>F: OnErrorOccurred(код) — банер
         else roSuccess
-            VM-->>F: OnSearchCompleted(TSearchReply)
+            VM-->>F: OnSearchCompleted(TSearchSummary)
         end
         F->>F: курсор назад (finally)
+        loop список малює рядок без даних (гортання)
+            F->>VM: FetchBookResults(модулі, порядок, Offset, 50)
+            VM->>SI: SearchBook(Q, Window)
+            SI->>DB: MATCH ? AND ModuleId IN (…) ORDER BY … LIMIT 50 OFFSET n
+            SI-->>VM: TResult<TArray<TBookSearchResult>>
+            VM-->>F: рядки (roError → банер, порожньо)
+        end
     end
 ```
 
