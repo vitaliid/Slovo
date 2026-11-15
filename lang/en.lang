@@ -22,6 +22,7 @@ dialog.sqliteDiagnostics.title = SQLite diagnostics
 header.library = Library
 header.smaller = Smaller text
 header.bigger = Larger text
+header.textWidth = Text width: narrow, medium, wide
 header.silence = Silence
 header.silence.exit = Leave silence
 header.silence.hint = Hide everything but the text (Esc brings it back)

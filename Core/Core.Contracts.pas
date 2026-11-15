@@ -59,6 +59,9 @@ type
     procedure SetLeftPanelWidth(Value: Integer);
     function GetRightPanelWidth: Integer;
     procedure SetRightPanelWidth(Value: Integer);
+    // E-23: how wide the text column is - 0 narrow, 1 medium (default), 2 wide.
+    function GetTextWidthMode: Integer;
+    procedure SetTextWidthMode(Value: Integer);
     function GetLeftPanelVisible: Boolean;
     procedure SetLeftPanelVisible(Value: Boolean);
     function GetRightPanelVisible: Boolean;

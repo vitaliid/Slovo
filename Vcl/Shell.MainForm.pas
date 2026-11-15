@@ -215,6 +215,9 @@ type
     FSplitStartX, FSplitStartWidth: Integer;
     FSplitWidth: Integer;                // the width the drag has reached; applied on release
     FSplitGuide: TPanel;                 // the line that follows the mouse meanwhile
+    // E-23: the width of the text column - a switch of three segments in the header.
+    FTextWidthMode: Integer;             // 0 narrow, 1 medium, 2 wide
+    FWidthSwitch: TWidthSwitch;
     FCenterBar: TThinScrollBar;
     FRightBar: TThinScrollBar;
     FLibraryHost: TPanel;
@@ -234,6 +237,7 @@ type
     procedure SplitMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
     procedure SplitMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure SplitDblClick(Sender: TObject);
+    procedure WidthSwitchChanged(Sender: TObject);
 
   private
     // A.5, as the mockup: the user's choice of the side panels (settings.ini)
@@ -531,6 +535,11 @@ begin
   FZoomInButton := NewButton(fgNone, actZoomInExecute);
   FZoomInButton.Caption := 'A+';
   FZoomInButton.FontPx := 15;
+  FTextWidthMode := 1;
+  FWidthSwitch := TWidthSwitch.Create(Self, FScale);
+  FWidthSwitch.Parent := FHeader;
+  FWidthSwitch.ShowHint := True;
+  FWidthSwitch.OnChange := WidthSwitchChanged;
   FSilenceButton := NewButton(fgNone, SilenceButtonClick);
   FSilenceButton.Pill := True;
   FSilenceButton.FontPx := 12;
@@ -570,6 +579,9 @@ begin
   W := FSilenceButton.PillWidth;
   Dec(X, ScaleValue(14) + W);
   PlaceAt(FSilenceButton, X, W, ScaleValue(30));
+  W := FWidthSwitch.PillWidth;           // E-23: the width of the text, left of «Тиша»
+  Dec(X, ScaleValue(14) + W);
+  PlaceAt(FWidthSwitch, X, W, FWidthSwitch.Height);
   Dec(X, ScaleValue(14) + B);
   PlaceAt(FZoomInButton, X, B, B);
   Dec(X, ScaleValue(2) + ScaleValue(42));
@@ -807,6 +819,16 @@ begin
   P := FMoreButton.ClientToScreen(Point(FMoreButton.Width, FMoreButton.Height + ScaleValue(4)));
   pmMain.Alignment := paRight;
   pmMain.Popup(P.X, P.Y);
+end;
+
+{ the width of the text column (E-23) }
+
+procedure TMainForm.WidthSwitchChanged(Sender: TObject);
+begin
+  FTextWidthMode := FWidthSwitch.Mode;
+  if FSettings <> nil then
+    FSettings.SetTextWidthMode(FTextWidthMode);
+  pnlCenterResize(nil);
 end;
 
 { the side panels' widths (E-22) }
@@ -1300,6 +1322,10 @@ begin
   if FSettings.GetRightPanelWidth > 0 then
     FRightPanel.Width := EnsureRange(ScaleValue(FSettings.GetRightPanelWidth),
       ScaleValue(SidePanelMinWidth), ScaleValue(SidePanelMaxWidth));
+  FTextWidthMode := FSettings.GetTextWidthMode;
+  if FWidthSwitch <> nil then
+    FWidthSwitch.Mode := FTextWidthMode;
+  pnlCenterResize(nil);                  // the column takes the chosen width
   FLeftWanted := FSettings.GetLeftPanelVisible;
   FRightWanted := FSettings.GetRightPanelVisible;
   FZoomStep := EnsureRange(FSettings.GetZoomStep, MinZoomStep, MaxZoomStep);
@@ -1361,6 +1387,8 @@ begin
   actZoomReset.Caption := L('menu.view.zoomReset');
   miViewSeparator.Caption := cLineCaption;
   miLanguage.Caption := L('menu.view.language');
+  if FWidthSwitch <> nil then
+    FWidthSwitch.Hint := L('header.textWidth');
   miSQLiteDiagnostics.Caption := L('menu.help.sqliteDiagnostics');
   miHelpSeparator.Caption := cLineCaption;
 
@@ -1436,7 +1464,17 @@ begin
     ScaleValue(TextColumnLeftMin), ScaleValue(TextColumnLeftMax));
   // border-box as the mockup's CSS: the left padding is inside the 724 px, the
   // text starts after it.
-  ColumnWidth := Max(Min(ScaleValue(TextColumnMax), pnlCenter.ClientWidth - 2 * Side), 0);
+  ColumnWidth := Min(ScaleValue(TextColumnMax), pnlCenter.ClientWidth - 2 * Side);
+  // E-23: medium and wide take a share of the centre, up to their limit - the
+  // column grows and shrinks with the window and the side panels - and are
+  // never narrower than narrow.
+  case FTextWidthMode of
+    1: ColumnWidth := Max(ColumnWidth, Min(pnlCenter.ClientWidth * TextColumnMediumPercent div 100,
+         ScaleValue(TextColumnMediumMax)));
+    2: ColumnWidth := Max(ColumnWidth, Min(pnlCenter.ClientWidth * TextColumnWidePercent div 100,
+         ScaleValue(TextColumnWideMax)));
+  end;
+  ColumnWidth := Max(Min(ColumnWidth, pnlCenter.ClientWidth - 2 * Side), 0);
   TextLeft := (pnlCenter.ClientWidth - ColumnWidth) div 2 + LeftPad;
   // pnlColumn itself starts the markers' zone (64 px) left of the text, so
   // inside it the text is always at 64: crumbs, chapter bar, toc numbers

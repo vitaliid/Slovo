@@ -45,6 +45,8 @@ type
     procedure SetLeftPanelWidth(Value: Integer);
     function GetRightPanelWidth: Integer;
     procedure SetRightPanelWidth(Value: Integer);
+    function GetTextWidthMode: Integer;
+    procedure SetTextWidthMode(Value: Integer);
     function GetLeftPanelVisible: Boolean;
     procedure SetLeftPanelVisible(Value: Boolean);
     function GetRightPanelVisible: Boolean;
@@ -182,6 +184,19 @@ end;
 procedure TIniSettings.SetRightPanelWidth(Value: Integer);
 begin
   FIni.WriteString(SUi, 'RightPanelWidth', IntToStr(Value));
+end;
+
+// E-23: 0 narrow, 1 medium, 2 wide; anything else is medium.
+function TIniSettings.GetTextWidthMode: Integer;
+begin
+  Result := ReadInt(SUi, 'TextWidth', 1);
+  if (Result < 0) or (Result > 2) then
+    Result := 1;
+end;
+
+procedure TIniSettings.SetTextWidthMode(Value: Integer);
+begin
+  FIni.WriteString(SUi, 'TextWidth', IntToStr(Value));
 end;
 
 function TIniSettings.GetLeftPanelVisible: Boolean;

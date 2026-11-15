@@ -67,6 +67,27 @@ type
     property OnChange: TNotifyEvent read FOnChange write FOnChange;
   end;
 
+  // The width of the text column, in the header (E-23): a pill of three
+  // segments, the bars in each as wide as its mode - narrow, medium, wide.
+  TWidthSwitch = class(TCustomControl)
+  private
+    FScale: TFlatScaleFunc;
+    FMode: Integer;
+    FOnChange: TNotifyEvent;
+    function Px(Value: Integer): Integer;
+    procedure SetMode(Value: Integer);
+    function SegmentRect(Index: Integer): TRect;
+  protected
+    procedure Paint; override;
+    procedure MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer); override;
+  public
+    constructor Create(AOwner: TComponent; const Scale: TFlatScaleFunc); reintroduce;
+    function PillWidth: Integer;
+    // 0 narrow, 1 medium, 2 wide. Set from code - no OnChange.
+    property Mode: Integer read FMode write SetMode;
+    property OnChange: TNotifyEvent read FOnChange write FOnChange;
+  end;
+
   TFlatCheckBox = class(TCustomControl)
   private
     FScale: TFlatScaleFunc;
@@ -583,6 +604,103 @@ begin
   inherited;
   FFocusCue := False;
   Invalidate;
+end;
+
+{ TWidthSwitch }
+
+const
+  WidthSwitchHeight  = 26;
+  WidthSwitchSegment = 30;
+  WidthSwitchPad     = 3;
+
+constructor TWidthSwitch.Create(AOwner: TComponent; const Scale: TFlatScaleFunc);
+begin
+  inherited Create(AOwner);
+  FScale := Scale;
+  FMode := 1;
+  ControlStyle := ControlStyle + [csOpaque] - [csDoubleClicks];
+  DoubleBuffered := True;
+  Color := ColorBackground;
+  Height := Px(WidthSwitchHeight);
+  Width := PillWidth;
+  Cursor := crHandPoint;
+end;
+
+function TWidthSwitch.Px(Value: Integer): Integer;
+begin
+  Result := FScale(Value);
+end;
+
+function TWidthSwitch.PillWidth: Integer;
+begin
+  Result := 2 * Px(WidthSwitchPad) + 3 * Px(WidthSwitchSegment);
+end;
+
+function TWidthSwitch.SegmentRect(Index: Integer): TRect;
+begin
+  Result := Rect(Px(WidthSwitchPad) + Index * Px(WidthSwitchSegment), Px(WidthSwitchPad),
+    Px(WidthSwitchPad) + (Index + 1) * Px(WidthSwitchSegment), Height - Px(WidthSwitchPad));
+end;
+
+procedure TWidthSwitch.SetMode(Value: Integer);
+begin
+  if Value < 0 then
+    Value := 0;
+  if Value > 2 then
+    Value := 2;
+  if FMode = Value then
+    Exit;
+  FMode := Value;
+  Invalidate;
+end;
+
+procedure TWidthSwitch.Paint;
+var
+  I, K, W, Left, Top: Integer;
+  R: TRect;
+begin
+  Canvas.Brush.Style := bsSolid;
+  Canvas.Brush.Color := Color;
+  Canvas.FillRect(ClientRect);
+  PaintRoundRect(Canvas, Rect(0, 0, PillWidth, Height), Height / 2, ColorBoxFill, ColorPillBorder);
+  R := SegmentRect(FMode);
+  PaintRoundRect(Canvas, R, R.Height / 2, ColorPillActive, clNone);
+  for I := 0 to 2 do
+  begin
+    R := SegmentRect(I);
+    // Three lines of text, as wide as the column of this mode.
+    W := Px(8 + I * 5);
+    Left := (R.Left + R.Right - W) div 2;
+    Top := (R.Top + R.Bottom - Px(10)) div 2;
+    Canvas.Brush.Style := bsSolid;
+    if I = FMode then
+      Canvas.Brush.Color := clWhite
+    else
+      Canvas.Brush.Color := ColorOptionText;
+    for K := 0 to 2 do
+      Canvas.FillRect(Rect(Left, Top + K * Px(4), Left + W, Top + K * Px(4) + Px(2)));
+  end;
+end;
+
+procedure TWidthSwitch.MouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+var
+  I: Integer;
+begin
+  inherited;
+  if Button <> mbLeft then
+    Exit;
+  for I := 0 to 2 do
+    if X < SegmentRect(I).Right then
+    begin
+      if I <> FMode then
+      begin
+        FMode := I;
+        Invalidate;
+        if Assigned(FOnChange) then
+          FOnChange(Self);
+      end;
+      Exit;
+    end;
 end;
 
 { TFlatCheckBox }

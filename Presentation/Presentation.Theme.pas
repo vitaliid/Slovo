@@ -46,6 +46,14 @@ const
   CenterMinWidth    = 360;
   SplitGripWidth    = 5;      // the strip that takes the mouse; its line is 1 px
   TextColumnMax    = 864;     // mockup 724; wider by Vitalii (2026-11-06): text ~800 px
+  // E-23: the reader chooses how wide the text is. Narrow - TextColumnMax as
+  // before. Medium and wide - a share of the centre (so the column grows and
+  // shrinks with the window and the side panels) up to a limit, never narrower
+  // than narrow.
+  TextColumnMediumPercent = 70;
+  TextColumnMediumMax     = 1100;
+  TextColumnWidePercent   = 90;
+  TextColumnWideMax       = 1600;
   // The text column of the mockup "Читання v2" (A.5): <main> has side padding
   // clamp(16px, 4vw, 56px); inside it the column is max-width 724px (border-box:
   // the left padding below is inside the 724, the text is 724 - padding), centred,

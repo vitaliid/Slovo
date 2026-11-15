@@ -22,6 +22,7 @@ dialog.sqliteDiagnostics.title = Диагностика SQLite
 header.library = Библиотека
 header.smaller = Меньше текст
 header.bigger = Больше текст
+header.textWidth = Ширина текста: узкая, средняя, широкая
 header.silence = Тишина
 header.silence.exit = Выйти из тишины
 header.silence.hint = Скрыть всё, кроме текста (Esc возвращает)
