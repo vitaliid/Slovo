@@ -20,6 +20,7 @@ interface
 uses
   System.SysUtils,
   System.Classes,
+  System.Diagnostics,
   System.Actions,
   Winapi.Windows,
   Winapi.Messages,
@@ -312,6 +313,7 @@ type
     procedure RenderChapter(const Args: TChapterLoadedArgs; FocusMatch: Integer = -1);
     procedure RenderBibleChapter(const Args: TBibleChapterLoadedArgs; FocusMatch: Integer = -1);
     procedure ShowDocument(const Doc: TChapterRtf; ParagraphFocus, FocusMatch: Integer);
+    procedure TimeDocument(const Doc: TChapterRtf; const Watch: TStopwatch);
     // R8-04: another match of the document that is already shown.
     procedure GoToMatch(Index: Integer);
     // R8-05: the chapter of the active search is the one the reader shows.
@@ -1879,25 +1881,42 @@ end;
 procedure TMainForm.RenderChapter(const Args: TChapterLoadedArgs; FocusMatch: Integer);
 var
   Request: THighlightRequest;
+  Doc: TChapterRtf;
+  Watch: TStopwatch;
 begin
   FShown := scBook;
   FLastChapter := Args;
   // R8-04: the boxes of the matches are painted by the form (E-21), so the
   // document does not depend on the current match - it is built once.
   Request.Hits := Args.Hits;
-  ShowDocument(TChapterRtfBuilder.Build(Args.Content,
-    L('read.chapter', [Args.Content.Ref.ChapterOrder]), FTheme, Request), Args.Focus, FocusMatch);
+  Watch := TStopwatch.StartNew;
+  Doc := TChapterRtfBuilder.Build(Args.Content,
+    L('read.chapter', [Args.Content.Ref.ChapterOrder]), FTheme, Request);
+  TimeDocument(Doc, Watch);
+  ShowDocument(Doc, Args.Focus, FocusMatch);
 end;
 
 procedure TMainForm.RenderBibleChapter(const Args: TBibleChapterLoadedArgs; FocusMatch: Integer);
 var
   Request: TVerseHighlightRequest;
+  Doc: TChapterRtf;
+  Watch: TStopwatch;
 begin
   FShown := scBible;
   FLastBibleChapter := Args;
   Request.Hits := Args.Hits;
-  ShowDocument(TChapterRtfBuilder.Build(Args.Content, Args.BookTitle,
-    L('read.chapter', [Args.Content.Ref.ChapterNumber]), FTheme, Request), Args.Focus, FocusMatch);
+  Watch := TStopwatch.StartNew;
+  Doc := TChapterRtfBuilder.Build(Args.Content, Args.BookTitle,
+    L('read.chapter', [Args.Content.Ref.ChapterNumber]), FTheme, Request);
+  TimeDocument(Doc, Watch);
+  ShowDocument(Doc, Args.Focus, FocusMatch);
+end;
+
+// C-24: how long the RTF of a chapter took and how big it is.
+procedure TMainForm.TimeDocument(const Doc: TChapterRtf; const Watch: TStopwatch);
+begin
+  FViewModel.ReportTiming('Rtf', Format('%s built in %.1f ms: %d characters of text, %d of RTF',
+    [Doc.Where, Watch.Elapsed.TotalMilliseconds, Doc.ExpectedChars, Length(Doc.Rtf)]));
 end;
 
 // The ViewModel names the current PARAGRAPH (the clicked result); the
@@ -2030,8 +2049,11 @@ end;
 procedure TMainForm.LoadDocument(const Doc: TChapterRtf; Focus: Integer);
 var
   StreamError, Actual: Integer;
+  Watch: TStopwatch;
+  StreamMs: Double;
 begin
   FDoc := Doc;
+  Watch := TStopwatch.StartNew;
   redReader.Lines.BeginUpdate;
   try
     StreamInRtf(redReader, Doc.Rtf, StreamError);
@@ -2039,6 +2061,7 @@ begin
   finally
     redReader.Lines.EndUpdate;
   end;
+  StreamMs := Watch.Elapsed.TotalMilliseconds;
 
   // C.4: the user sees what got in; only the log knows about a shortfall.
   Actual := PreciseLength(redReader);
@@ -2051,6 +2074,15 @@ begin
     ScrollToChar(redReader, Doc.MatchStarts[Focus])
   else
     ScrollToChar(redReader, 0);
+  // C-24: the first paint is inside the second number - the reader is asked to
+  // paint now only when the time is being taken.
+  if FViewModel.TimingEnabled then
+  begin
+    if redReader.Showing then
+      redReader.Update;
+    FViewModel.ReportTiming('Reader', Format('%s streamed in %.1f ms, counted, scrolled and painted in %.1f ms',
+      [Doc.Where, StreamMs, Watch.Elapsed.TotalMilliseconds - StreamMs]));
+  end;
   UpdateCrumbs;
   FLibraryTree.SetActive(FViewModel.Position);
 end;

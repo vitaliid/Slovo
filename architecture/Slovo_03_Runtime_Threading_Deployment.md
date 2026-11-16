@@ -428,8 +428,22 @@ type
 ```pascal
 ILogger = interface
   procedure LogError(const Source, Msg: string);
+  // C-24 (R8-07): заміри часу; без ключа -timing LogTiming нічого не робить
+  function TimingEnabled: Boolean;
+  procedure LogTiming(const Source, Msg: string);
 end;
 ```
+
+**Заміри часу (C-24, аудит R8-07).** `Slovo.exe -timing` (у Delphi — Run → Parameters) додає в той самий `slovo.log` рядки з джерелом `[Timing]`; без ключа лог, як і раніше, містить лише помилки. Що міряється:
+
+| Рядок | Де | Що |
+|---|---|---|
+| `Startup` | `TCompositionRoot` | фаза 0 (DLL, база, каталог) і фаза 1 (`Bind` — форма наповнена) |
+| `Search` | `TMainViewModel.Search` | підрахунок у книгах і в Біблії окремо |
+| `Window` | `FetchBookResults` / `FetchBibleResults` | одне вікно рядків: порядок, зсув, кількість |
+| `Chapter` | `OpenChapter` | читання глави з бази і збіги в главі окремо |
+| `Rtf` | `TMainForm.RenderChapter` | збірка RTF, його розмір і розмір тексту |
+| `Reader` | `TMainForm.LoadDocument` | `EM_STREAMIN` окремо; підрахунок, прокрутка й перше малювання разом (малювання форсується лише з ключем) |
 
 ```pascal
 // Infra.Logging.FileLogger

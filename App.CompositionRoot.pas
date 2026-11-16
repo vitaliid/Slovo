@@ -57,6 +57,7 @@ implementation
 
 uses
   System.IOUtils,
+  System.Diagnostics,
   Infrastructure.SQLite3.Api,
   Infrastructure.SQLite3.Database,
   Infra.Logging.FileLogger,
@@ -95,7 +96,9 @@ begin
   FDataDir := TPath.Combine(FExeDir, 'data');
 
   FDataWritable := EnsureWritableDir(FDataDir);
-  FLogger := TFileLogger.Create(TPath.Combine(FDataDir, 'slovo.log'));
+  // C-24: "Slovo.exe -timing" adds timing lines to the log.
+  FLogger := TFileLogger.Create(TPath.Combine(FDataDir, 'slovo.log'),
+    FindCmdLineSwitch('timing', ['-', '/'], True));
   FSettings := TIniSettings.Create(TPath.Combine(FDataDir, 'settings.ini'), FLogger);
 
   // Language before the first text, including the phase-0 MessageBox (R3-25).
@@ -140,7 +143,9 @@ var
   OpenError: TResultError;
   Probe: TSQLiteDatabase;
   HasFts5: Boolean;
+  Watch: TStopwatch;
 begin
+  Watch := TStopwatch.StartNew;
   // 6. sqlite3.dll - only from here, by full path (D-08).
   try
     LoadSQLite3(TPath.Combine(FExeDir, 'sqlite3.dll'));
@@ -194,6 +199,8 @@ begin
   end;
   if Length(FCatalog.Modules) = 0 then
     Exit(Fail('startup.noLibrary'));
+  FLogger.LogTiming('Startup', Format('sqlite3.dll, library.db and the catalog (%d modules) in %.1f ms',
+    [Length(FCatalog.Modules), Watch.Elapsed.TotalMilliseconds]));
 
   // 9. Search on the same connection (C-21); the catalog gives module languages (B-31).
   FSearchIndex := TFts5SearchIndex.Create(FDatabase, FCatalog, FLogger);
@@ -208,8 +215,13 @@ begin
 end;
 
 procedure TCompositionRoot.BindMainForm(const View: IMainView);
+var
+  Watch: TStopwatch;
 begin
+  Watch := TStopwatch.StartNew;
   View.Bind(FMainViewModel, FSettings, FTheme);
+  FLogger.LogTiming('Startup', Format('the form bound and filled in %.1f ms',
+    [Watch.Elapsed.TotalMilliseconds]));
 end;
 
 procedure TCompositionRoot.UnbindMainForm(const View: IMainView);

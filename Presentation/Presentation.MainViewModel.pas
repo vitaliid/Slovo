@@ -146,6 +146,9 @@ type
 
     // ---- Diagnostics (Slovo_03 A.6/A.7)
     procedure ReportRenderProblem(const Msg: string);
+    // C-24: a timing line of the form (RTF, RichEdit); nothing without -timing.
+    function TimingEnabled: Boolean;
+    procedure ReportTiming(const Source, Msg: string);
     procedure ReportUnexpected(const Msg: string);
 
     property View: TReaderView read FView;
@@ -177,6 +180,7 @@ const
 implementation
 
 uses
+  System.Diagnostics,
   System.Generics.Defaults;
 
 { TMainViewModel }
@@ -502,6 +506,8 @@ var
   Args: TChapterLoadedArgs;
   P: TReadingPosition;
   Focus, I: Integer;
+  Watch: TStopwatch;
+  ReadMs: Double;
 begin
   Focus := FPendingFocus;
   FPendingFocus := -1;
@@ -511,7 +517,9 @@ begin
     Exit;
   end;
 
+  Watch := TStopwatch.StartNew;
   Content := FLibrary.GetChapterContent(Ref);
+  ReadMs := Watch.Elapsed.TotalMilliseconds;
   if not Content.IsSuccess then
   begin
     ReportError(Content.Error, Format('OpenChapter %s:%d', [string(Ref.ModuleId), Ref.ChapterOrder]));
@@ -535,6 +543,10 @@ begin
       // E-08: the chapter is shown without highlighting, only the log knows.
       FLogger.LogError('Search', Format('FindInChapter failed (error %d)', [Ord(Hits.Error)]));
   end;
+  if FLogger.TimingEnabled then
+    FLogger.LogTiming('Chapter', Format('%s:%d read in %.1f ms (%d paragraphs), matches in %.1f ms (%d)',
+      [string(Ref.ModuleId), Ref.ChapterOrder, ReadMs, Length(Args.Content.Paragraphs),
+       Watch.Elapsed.TotalMilliseconds - ReadMs, Length(Args.Hits)]));
 
   P := Default(TReadingPosition);
   P.Kind := ckBook;
@@ -552,6 +564,8 @@ var
   Args: TBibleChapterLoadedArgs;
   P: TReadingPosition;
   Focus, I: Integer;
+  Watch: TStopwatch;
+  ReadMs: Double;
 begin
   Focus := FPendingFocus;
   FPendingFocus := -1;
@@ -562,7 +576,9 @@ begin
     Exit;
   end;
 
+  Watch := TStopwatch.StartNew;
   Content := FLibrary.GetBibleChapter(Ref);
+  ReadMs := Watch.Elapsed.TotalMilliseconds;
   if not Content.IsSuccess then
   begin
     ReportError(Content.Error, Format('OpenChapter %s:%s:%d',
@@ -587,6 +603,10 @@ begin
     else
       FLogger.LogError('Search', Format('FindInBibleChapter failed (error %d)', [Ord(Hits.Error)]));
   end;
+  if FLogger.TimingEnabled then
+    FLogger.LogTiming('Chapter', Format('%s:%s:%d read in %.1f ms (%d verses), matches in %.1f ms (%d)',
+      [string(Ref.Book.ModuleId), string(Ref.Book.BookCode), Ref.ChapterNumber, ReadMs,
+       Length(Args.Content.Verses), Watch.Elapsed.TotalMilliseconds - ReadMs, Length(Args.Hits)]));
 
   P := Default(TReadingPosition);
   P.Kind := ckBibleTranslation;
@@ -676,6 +696,7 @@ var
   Q: TSearchQuery;
   Window: TSearchWindow;
   R: TResult<TArray<TBookSearchResult>>;
+  Watch: TStopwatch;
 begin
   Items := nil;
   Q := Query;
@@ -683,7 +704,12 @@ begin
   Window.Order := Order;
   Window.Offset := Offset;
   Window.Count := Count;
+  Watch := TStopwatch.StartNew;
   R := FSearchIndex.SearchBook(Q, Window);
+  if FLogger.TimingEnabled then
+    FLogger.LogTiming('Window', Format('SearchBook "%s": %d modules, order %d, offset %d, %d rows in %.1f ms',
+      [Query.Text, Length(ModuleIds), Ord(Order), Offset, Length(R.Value),
+       Watch.Elapsed.TotalMilliseconds]));
   Result := R.IsSuccess;
   if Result then
     Items := R.Value
@@ -697,6 +723,7 @@ var
   Q: TSearchQuery;
   Window: TSearchWindow;
   R: TResult<TArray<TBibleSearchResult>>;
+  Watch: TStopwatch;
 begin
   Items := nil;
   Q := Query;
@@ -704,7 +731,12 @@ begin
   Window.Order := Order;
   Window.Offset := Offset;
   Window.Count := Count;
+  Watch := TStopwatch.StartNew;
   R := FSearchIndex.SearchBible(Q, Window);
+  if FLogger.TimingEnabled then
+    FLogger.LogTiming('Window', Format('SearchBible "%s": %d modules, order %d, offset %d, %d rows in %.1f ms',
+      [Query.Text, Length(ModuleIds), Ord(Order), Offset, Length(R.Value),
+       Watch.Elapsed.TotalMilliseconds]));
   Result := R.IsSuccess;
   if Result then
     Items := R.Value
@@ -737,6 +769,8 @@ var
   Summary: TSearchSummary;
   Books: TResult<TArray<TBookHitCount>>;
   Bible: TResult<TArray<TBibleHitCount>>;
+  Watch: TStopwatch;
+  BooksMs: Double;
 begin
   // The form already shows a status line for these (R4-24); this is a guard for tests.
   if Text.Replace(#$00A0, ' ').Trim.IsEmpty then
@@ -764,6 +798,7 @@ begin
 
   Summary := Default(TSearchSummary);
   Summary.Query := Query;
+  Watch := TStopwatch.StartNew;
 
   // B-34: a search only counts; the rows are read in windows as the list shows
   // them. R4-01: an empty list of one kind means NO call, not "the whole library".
@@ -779,6 +814,7 @@ begin
     end;
     Summary.Books := Books.Value;
   end;
+  BooksMs := Watch.Elapsed.TotalMilliseconds;
 
   if WholeLibrary or (Length(BibleIds) > 0) then
   begin
@@ -792,6 +828,11 @@ begin
     end;
     Summary.Bible := Bible.Value;
   end;
+  if FLogger.TimingEnabled then
+    FLogger.LogTiming('Search', Format('"%s" (phrase %d, forms %d, whole library %d): ' +
+      'books counted in %.1f ms (%d chapters), the Bible in %.1f ms (%d books)',
+      [Text, Ord(ExactPhrase), Ord(WordForms), Ord(WholeLibrary), BooksMs, Length(Summary.Books),
+       Watch.Elapsed.TotalMilliseconds - BooksMs, Length(Summary.Bible)]));
 
   // FindInChapter ignores ModuleIds (the chapter names its module), and a window
   // sets its own, so the plain query is the active one.
@@ -839,6 +880,16 @@ end;
 procedure TMainViewModel.ReportRenderProblem(const Msg: string);
 begin
   FLogger.LogError('Render', Msg);       // E-01: log only, no banner
+end;
+
+function TMainViewModel.TimingEnabled: Boolean;
+begin
+  Result := FLogger.TimingEnabled;
+end;
+
+procedure TMainViewModel.ReportTiming(const Source, Msg: string);
+begin
+  FLogger.LogTiming(Source, Msg);
 end;
 
 procedure TMainViewModel.ReportUnexpected(const Msg: string);

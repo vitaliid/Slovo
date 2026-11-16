@@ -2,7 +2,8 @@
 
 { ILogger over data\slovo.log (Slovo_03 A.7; C-11, C-18).
 
-  Errors only, no levels, no rotation. Open-append-close on every call: errors
+  Errors, and - only when started with -timing - timing lines (C-24); no levels,
+  no rotation. Open-append-close on every call: errors
   are rare, the file can be read while the program runs, and several instances
   may write to it (C-23). Called from the UI thread only (C-21), so no lock.
 
@@ -18,9 +19,13 @@ type
   TFileLogger = class(TInterfacedObject, ILogger)
   private
     FLogFilePath: string;
+    FTimingEnabled: Boolean;
+    procedure Append(const Source, Msg: string);
   public
-    constructor Create(const ALogFilePath: string);
+    constructor Create(const ALogFilePath: string; ATimingEnabled: Boolean = False);
     procedure LogError(const Source, Msg: string);
+    function TimingEnabled: Boolean;
+    procedure LogTiming(const Source, Msg: string);
     property LogFilePath: string read FLogFilePath;
   end;
 
@@ -31,13 +36,31 @@ uses
   System.Classes,
   System.IOUtils;
 
-constructor TFileLogger.Create(const ALogFilePath: string);
+constructor TFileLogger.Create(const ALogFilePath: string; ATimingEnabled: Boolean);
 begin
   inherited Create;
   FLogFilePath := ALogFilePath;
+  FTimingEnabled := ATimingEnabled;
 end;
 
 procedure TFileLogger.LogError(const Source, Msg: string);
+begin
+  Append(Source, Msg);
+end;
+
+function TFileLogger.TimingEnabled: Boolean;
+begin
+  Result := FTimingEnabled;
+end;
+
+// "[time] [Timing] Search: ..." - told from the errors by its source.
+procedure TFileLogger.LogTiming(const Source, Msg: string);
+begin
+  if FTimingEnabled then
+    Append('Timing', Source + ': ' + Msg);
+end;
+
+procedure TFileLogger.Append(const Source, Msg: string);
 var
   Dir: string;
   Line: TBytes;

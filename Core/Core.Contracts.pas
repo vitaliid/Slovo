@@ -43,6 +43,11 @@ type
     ['{1D74C0A9-5B62-4E38-A7D1-0C9E4B83F605}']
     // C-18: must never raise, under any circumstances.
     procedure LogError(const Source, Msg: string);
+    // C-24 (R8-07): how long things took. Written only when the program was
+    // started with -timing; otherwise LogTiming does nothing. A caller that has
+    // to build a costly message asks TimingEnabled first. Never raises either.
+    function TimingEnabled: Boolean;
+    procedure LogTiming(const Source, Msg: string);
   end;
 
   // E-06: user settings over data\settings.ini (format - Slovo_04 C.2).

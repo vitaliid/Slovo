@@ -25,6 +25,7 @@ type
     [Test] procedure CreatesMissingFolderAndAppends;
     [Test] procedure WritesUtf8WithoutBom;
     [Test] procedure NeverRaises_WhenPathIsUnusable;
+    [Test] procedure Timing_IsWrittenOnlyWhenEnabled;
   end;
 
   [TestFixture]
@@ -122,6 +123,29 @@ begin
     begin
       Logger.LogError('Test', 'lost, and that is fine');
     end);
+end;
+
+// C-24: without -timing the log holds errors only.
+procedure TFileLoggerTests.Timing_IsWrittenOnlyWhenEnabled;
+var
+  Logger: ILogger;
+  FileName: string;
+  Lines: TArray<string>;
+begin
+  FileName := TPath.Combine(FDir, 'slovo.log');
+  Logger := TFileLogger.Create(FileName);
+  Assert.IsFalse(Logger.TimingEnabled);
+  Logger.LogTiming('Search', 'not written');
+  Assert.IsFalse(TFile.Exists(FileName));
+
+  Logger := TFileLogger.Create(FileName, True);
+  Assert.IsTrue(Logger.TimingEnabled);
+  Logger.LogTiming('Search', 'counted in 1.5 ms');
+  Logger.LogError('Test', 'an error next to it');
+  Lines := TFile.ReadAllLines(FileName, TEncoding.UTF8);
+  Assert.AreEqual(2, Integer(Length(Lines)));
+  Assert.IsTrue(Lines[0].EndsWith('[Timing] Search: counted in 1.5 ms'), Lines[0]);
+  Assert.IsTrue(Lines[1].EndsWith('[Test] an error next to it'), Lines[1]);
 end;
 
 { TIniSettingsTests }

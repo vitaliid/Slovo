@@ -21,6 +21,8 @@ type
     constructor Create;
     destructor Destroy; override;
     procedure LogError(const Source, Msg: string);
+    function TimingEnabled: Boolean;
+    procedure LogTiming(const Source, Msg: string);
     function Contains(const Fragment: string): Boolean;
     function Count: Integer;
   end;
@@ -60,6 +62,16 @@ end;
 procedure TTestLogger.LogError(const Source, Msg: string);
 begin
   FMessages.Add('[' + Source + '] ' + Msg);
+end;
+
+// C-24: timing is off in tests - the messages hold errors only.
+function TTestLogger.TimingEnabled: Boolean;
+begin
+  Result := False;
+end;
+
+procedure TTestLogger.LogTiming(const Source, Msg: string);
+begin
 end;
 
 function TTestLogger.Contains(const Fragment: string): Boolean;
