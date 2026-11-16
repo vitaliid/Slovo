@@ -32,14 +32,14 @@ type
     [Test] procedure Book_RuleIsOneGlyphInEBGaramond;
     [Test] procedure Book_EveryParagraphResetsCharacterFormatting;
     [Test] procedure Book_GapsAreSpacersNotParagraphSpace;
-    [Test] procedure Book_FocusAndOtherHitsAreBakedIn;
-    [Test] procedure Book_FocusIsOneWordNotTheParagraph;
+    [Test] procedure Book_HitsAreBakedIn;
+    [Test] procedure Book_EveryWordIsAMatch;
     [Test] procedure Book_HitStartsPointAtTheFirstMatch;
     [Test] procedure Book_HitOutsideTheChapterIsMinusOne;
     [Test] procedure Book_BadHighlightsAreClampedAndOverlapsDropped;
     [Test] procedure Book_FontsComeFromTheTheme;
     [Test] procedure Bible_VerseNumbersAreMarkersBeforeStartChar;
-    [Test] procedure Bible_HitStartsAndFocus;
+    [Test] procedure Bible_HitStarts;
     [Test] procedure Where_IdentifiesTheChapter;
   end;
 
@@ -423,38 +423,34 @@ begin
   Assert.Contains(Doc.Rtf, RtfSpacerStart + '180\slmult0');
 end;
 
-procedure TChapterRtfBuilderTests.Book_FocusAndOtherHitsAreBakedIn;
+procedure TChapterRtfBuilderTests.Book_HitsAreBakedIn;
 var
   Request: THighlightRequest;
   Doc: TChapterRtf;
   Back: TRtfReadBack;
 begin
-  // "жертва" in paragraph 3 (offset 35) - focus; "жертва", "жертви" in 4.
+  // "жертва" in paragraph 3 (offset 35); "жертва", "жертви" in 4.
   Request.Hits := [Hit(3, [Hl(35, 6)]), Hit(4, [Hl(30, 6), Hl(39, 6)])];
-  Request.Focus := 0;
   Doc := TChapterRtfBuilder.Build(SampleChapter, 'Розділ 3', Theme, Request);
   Back := ReadBack(Doc.Rtf);
 
-  Assert.AreEqual('жертва', Back.UnderHighlight(5));
-  Assert.AreEqual('жертважертви', Back.UnderHighlight(6));
+  Assert.AreEqual('жертважертважертви', Back.UnderHighlight(5));
+  Assert.AreEqual('', Back.UnderHighlight(6), 'one colour for all: the form marks the current one (R8-04)');
   Assert.AreEqual(Length(Back.Text), Doc.ExpectedChars, 'highlight groups add no characters');
 end;
 
-// E-08 by words: every highlighted word is a match; Focus = 2 is the SECOND
-// word of paragraph 4, and only it gets the "current" colour.
-procedure TChapterRtfBuilderTests.Book_FocusIsOneWordNotTheParagraph;
+// E-08 by words: every highlighted word is a match of its own, in document order.
+procedure TChapterRtfBuilderTests.Book_EveryWordIsAMatch;
 var
   Request: THighlightRequest;
   Doc: TChapterRtf;
   Back: TRtfReadBack;
 begin
   Request.Hits := [Hit(3, [Hl(35, 6)]), Hit(4, [Hl(30, 6), Hl(39, 6)])];
-  Request.Focus := 2;
   Doc := TChapterRtfBuilder.Build(SampleChapter, 'Розділ 3', Theme, Request);
   Back := ReadBack(Doc.Rtf);
 
-  Assert.AreEqual('жертви', Back.UnderHighlight(5));
-  Assert.AreEqual('жертважертва', Back.UnderHighlight(6));
+  Assert.AreEqual('жертважертважертви', Back.UnderHighlight(5));
   Assert.AreEqual(3, Integer(Length(Doc.MatchStarts)));
   Assert.AreEqual('жертва', TextAt(Back, Doc.MatchStarts[0], 6));
   Assert.AreEqual('жертва', TextAt(Back, Doc.MatchStarts[1], 6));
@@ -470,15 +466,14 @@ var
   Back: TRtfReadBack;
 begin
   Request.Hits := [Hit(4, [Hl(39, 6), Hl(30, 6)]), Hit(1, [Hl(8, 1)])];   // unsorted on purpose
-  // Focus is a word in DOCUMENT order (E-08): the title's "і" comes first.
-  Request.Focus := 0;
+  // The words are numbered in DOCUMENT order (E-08): the title's "і" comes first.
   Doc := TChapterRtfBuilder.Build(SampleChapter, 'Розділ 3', Theme, Request);
   Back := ReadBack(Doc.Rtf);
 
   Assert.AreEqual(2, Integer(Length(Doc.HitStarts)));
   Assert.AreEqual('жертва', TextAt(Back, Doc.HitStarts[0], 6));
   Assert.AreEqual(8, Doc.HitStarts[1], 'a match in the title');
-  Assert.AreEqual('і', Back.UnderHighlight(5));
+  Assert.AreEqual('і', TextAt(Back, Doc.MatchStarts[0], 1));
   Assert.AreEqual(0, Doc.HitFirstMatch[1], 'the title is word 0');
   Assert.AreEqual(1, Doc.HitFirstMatch[0], 'Hits[0] starts at word 1');
 end;
@@ -489,10 +484,9 @@ var
   Doc: TChapterRtf;
 begin
   Request.Hits := [Hit(99, [Hl(0, 3)])];
-  Request.Focus := 0;
   Doc := TChapterRtfBuilder.Build(SampleChapter, 'Розділ 3', Theme, Request);
   Assert.AreEqual(-1, Doc.HitStarts[0]);
-  Assert.IsFalse(Doc.Rtf.Contains(RtfHitCurrent));
+  Assert.IsFalse(Doc.Rtf.Contains(RtfHit));
 end;
 
 procedure TChapterRtfBuilderTests.Book_BadHighlightsAreClampedAndOverlapsDropped;
@@ -505,11 +499,10 @@ begin
   Text := SampleChapter.Paragraphs[3].Text;                // LogicalIndex 4
   Request.Hits := [Hit(4, [Hl(-1, 3), Hl(0, 0), Hl(0, 6), Hl(3, 5), Hl(Length(Text) - 2, 50),
     Hl(Length(Text) + 5, 2)])];
-  Request.Focus := -1;
   Doc := TChapterRtfBuilder.Build(SampleChapter, 'Розділ 3', Theme, Request);
   Back := ReadBack(Doc.Rtf);
 
-  Assert.AreEqual(Copy(Text, 1, 6) + Copy(Text, Length(Text) - 1, 2), Back.UnderHighlight(6));
+  Assert.AreEqual(Copy(Text, 1, 6) + Copy(Text, Length(Text) - 1, 2), Back.UnderHighlight(5));
   Assert.AreEqual(Length(Back.Text), Doc.ExpectedChars);
 end;
 
@@ -571,7 +564,7 @@ begin
   Assert.Contains(Doc.Rtf, RtfVerse);
 end;
 
-procedure TChapterRtfBuilderTests.Bible_HitStartsAndFocus;
+procedure TChapterRtfBuilderTests.Bible_HitStarts;
 var
   Request: TVerseHighlightRequest;
   Doc: TChapterRtf;
@@ -581,7 +574,6 @@ begin
   V.VerseNumber := 2;
   V.Highlights := [Hl(10, 5)];                             // "жінка"
   Request.Hits := [V];
-  Request.Focus := 0;
   Doc := TChapterRtfBuilder.Build(SampleBibleChapter, 'Буття', 'Розділ 3', Theme, Request);
   Back := ReadBack(Doc.Rtf);
 

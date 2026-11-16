@@ -1885,7 +1885,6 @@ begin
   // R8-04: the boxes of the matches are painted by the form (E-21), so the
   // document does not depend on the current match - it is built once.
   Request.Hits := Args.Hits;
-  Request.Focus := -1;
   ShowDocument(TChapterRtfBuilder.Build(Args.Content,
     L('read.chapter', [Args.Content.Ref.ChapterOrder]), FTheme, Request), Args.Focus, FocusMatch);
 end;
@@ -1897,7 +1896,6 @@ begin
   FShown := scBible;
   FLastBibleChapter := Args;
   Request.Hits := Args.Hits;
-  Request.Focus := -1;
   ShowDocument(TChapterRtfBuilder.Build(Args.Content, Args.BookTitle,
     L('read.chapter', [Args.Content.Ref.ChapterNumber]), FTheme, Request), Args.Focus, FocusMatch);
 end;

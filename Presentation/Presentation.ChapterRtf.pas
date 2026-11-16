@@ -47,18 +47,16 @@ type
   end;
 
   // What to highlight (E-08): ready matches from FTS. Every highlighted word is
-  // a match of its own, numbered in document order (the title first); Focus -
-  // the number of the current match, -1 - none. The current word gets
-  // \highlight5, all the others \highlight6.
+  // a match of its own, numbered in document order (the title first) and marked
+  // with a \highlight5 group. Which match is the current one is the form's
+  // business (R8-04): it paints the boxes, the document is the same for all.
   THighlightRequest = record
     Hits: TArray<TParagraphHit>;
-    Focus: Integer;
     class function None: THighlightRequest; static;
   end;
 
   TVerseHighlightRequest = record
     Hits: TArray<TVerseHit>;
-    Focus: Integer;
     class function None: TVerseHighlightRequest; static;
   end;
 
@@ -129,8 +127,7 @@ const
   RtfMarkerTabs      = '\fi-960\tqr\tx660\tx960';
   RtfPageMarker      = '\f1\fs16\cf2';                       // "[71]", 10.5 px #8a8a8a
   RtfVerseNumber     = '\fs19\cf3';                          // "8", .62em #767676
-  RtfHitCurrent      = '\highlight5';
-  RtfHitOther        = '\highlight6';
+  RtfHit             = '\highlight5';
 
   // The short rule under the title (A.1), muted, aligned with the title and
   // "Розділ N" on the left. ONE glyph: consecutive dashes leave gaps (side
@@ -164,8 +161,8 @@ const
     '\red138\green138\blue138;' +   // 2 #8a8a8a
     '\red118\green118\blue118;' +   // 3 #767676
     '\red74\green74\blue74;' +      // 4 #4a4a4a
-    '\red252\green252\blue252;' +   // 5 #fcfcfc: the current match - painted by the form
-    '\red252\green252\blue252;' +   // 6 #fcfcfc: the other matches
+    '\red252\green252\blue252;' +   // 5 #fcfcfc: a match - its box is painted by the form
+    '\red252\green252\blue252;' +   // 6 #fcfcfc: not used (was "the other matches"); keeps \cf7 in place
     '\red36\green36\blue36;}';      // 7 #242424
 
 type
@@ -251,13 +248,11 @@ end;
 class function THighlightRequest.None: THighlightRequest;
 begin
   Result.Hits := nil;
-  Result.Focus := -1;
 end;
 
 class function TVerseHighlightRequest.None: TVerseHighlightRequest;
 begin
   Result.Hits := nil;
-  Result.Focus := -1;
 end;
 
 { helpers }
@@ -335,23 +330,18 @@ end;
 // Every match is numbered in document order; Starts gets its position.
 // Result - the number of the paragraph's first match; -1 when cleaning left none.
 function WriteHighlightedText(W: TRtfWriter; const Text: string;
-  const Highlights: TArray<TSearchHighlight>; Focus: Integer; Starts, Lens: TList<Integer>): Integer;
+  const Highlights: TArray<TSearchHighlight>; Starts, Lens: TList<Integer>): Integer;
 var
   H: TSearchHighlight;
   Pos: Integer;
-  Group: string;
 begin
   Result := Starts.Count;
   Pos := 0;
   for H in CleanHighlights(Highlights, Length(Text)) do
   begin
     W.Text(Copy(Text, Pos + 1, H.StartOffset - Pos));
-    if Starts.Count = Focus then
-      Group := RtfHitCurrent
-    else
-      Group := RtfHitOther;
     Starts.Add(W.Chars);
-    W.Raw('{' + Group + ' ');
+    W.Raw('{' + RtfHit + ' ');
     W.Text(Copy(Text, H.StartOffset + 1, H.Len));
     W.Raw('}');
     Lens.Add(W.Chars - Starts.Last);
@@ -496,7 +486,7 @@ begin
       if HitIndex.TryGetValue(R.LogicalIndex, HitAt) then
       begin
         Result.HitFirstMatch[HitAt] :=
-          WriteHighlightedText(W, Title, Highlight.Hits[HitAt].Highlights, Highlight.Focus, Starts, Lens);
+          WriteHighlightedText(W, Title, Highlight.Hits[HitAt].Highlights, Starts, Lens);
         Result.HitStarts[HitAt] := FirstMatchStart(Highlight.Hits[HitAt].Highlights, R.StartChar, R.Len);
       end
       else
@@ -540,7 +530,7 @@ begin
       if HitIndex.TryGetValue(R.LogicalIndex, HitAt) then
       begin
         Result.HitFirstMatch[HitAt] :=
-          WriteHighlightedText(W, P.Text, Highlight.Hits[HitAt].Highlights, Highlight.Focus, Starts, Lens);
+          WriteHighlightedText(W, P.Text, Highlight.Hits[HitAt].Highlights, Starts, Lens);
         Result.HitStarts[HitAt] := FirstMatchStart(Highlight.Hits[HitAt].Highlights, R.StartChar, R.Len);
       end
       else
@@ -619,7 +609,7 @@ begin
       if HitIndex.TryGetValue(R.LogicalIndex, HitAt) then
       begin
         Result.HitFirstMatch[HitAt] :=
-          WriteHighlightedText(W, V.Text, Highlight.Hits[HitAt].Highlights, Highlight.Focus, Starts, Lens);
+          WriteHighlightedText(W, V.Text, Highlight.Hits[HitAt].Highlights, Starts, Lens);
         Result.HitStarts[HitAt] := FirstMatchStart(Highlight.Hits[HitAt].Highlights, R.StartChar, R.Len);
       end
       else

@@ -161,7 +161,6 @@ var
   Doc: TChapterRtf;
 begin
   Request.Hits := [Hit(3, [Hl(35, 6)]), Hit(4, [Hl(30, 6), Hl(39, 6)])];
-  Request.Focus := 1;
   Doc := TChapterRtfBuilder.Build(SampleChapter, 'Розділ 3', Theme, Request);
   Assert.AreEqual(Doc.ExpectedChars, Load(Doc), 'highlight groups add no characters');
   Assert.AreEqual('жертва', TextAt(Doc.HitStarts[0], 6));
