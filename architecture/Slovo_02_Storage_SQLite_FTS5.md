@@ -369,9 +369,21 @@ FROM Paragraphs WHERE ModuleId = :m AND ChapterOrder = :c ORDER BY LogicalIndex;
 -- GetBibleChapter(ModuleId, BookCode, ChapterNumber)
 SELECT VerseNumber, Text FROM Verses
 WHERE ModuleId = :m AND BookCode = :b AND ChapterNumber = :c ORDER BY VerseNumber;
+
+-- FindPage(ModuleId, N) (R8, B-35) — до трьох коротких запитів у межах однієї книги
+SELECT MIN(StartPageNumber), MAX(StartPageNumber)
+FROM Paragraphs WHERE ModuleId = :m AND StartPageNumber > 0;              -- межі; NULL — сторінок немає
+SELECT ChapterOrder, LogicalIndex FROM Paragraphs
+WHERE ModuleId = :m AND StartPageNumber = :n
+ORDER BY ChapterOrder, LogicalIndex LIMIT 1;                             -- сторінка починається з абзацу
+SELECT ChapterOrder, LogicalIndex FROM Paragraphs
+WHERE ModuleId = :m AND StartPageNumber > 0 AND StartPageNumber < :n
+ORDER BY StartPageNumber DESC, ChapterOrder DESC, LogicalIndex DESC LIMIT 1;  -- інакше — посеред абзацу
 ```
 
 `ORDER BY OrderInModule` для `Books` — явний: `BookCode` текстовий, фізичний порядок з канонічним не збігається. Обсяг каталогу — кілька тисяч коротких рядків, кілька сотень КБ у пам'яті.
+
+**`FindPage` (R8, B-35).** Другий і третій запити — лише коли `:n` у межах першого. Сторінки книги **не завжди зростають у порядку тексту**: у 14 зі 126 книг зі сторінками (томи «Свідчень», збірки, додатки) нумерація десь починається знову. Тому сторінку, що починається посеред абзацу, шукаємо за **номером** (найбільший менший), а не за позицією; коли сторінка `N` трапляється в книзі кілька разів — беремо першу в порядку книги. Сторінки, на якій не починається жоден абзац (вся всередині довгого абзацу), у даних немає як рядка — третій запит і дає той абзац. Обидва запити звужуються до однієї книги через `UNIQUE (ModuleId, ChapterOrder, LogicalIndex)` (кілька тисяч рядків); на справжній базі — близько 2 мс на межі + абзац, тож форма питає `FindPage` на кожну зміну поля (View 4, A.7).
 
 ---
 
@@ -538,6 +550,7 @@ end;
 Понад `PRIMARY KEY`/`UNIQUE`, вказані вище, **жодних додаткових `CREATE INDEX` не потрібно** (B-13):
 - `Modules`, `Chapters`, `Books` читаються повністю (`LoadCatalog`); `ORDER BY` збігається з PK
 - `Paragraphs`: `UNIQUE (ModuleId, ChapterOrder, LogicalIndex)` покриває `GetChapterContent`; `Verses`: `UNIQUE (ModuleId, BookCode, ChapterNumber, VerseNumber)` — главу Біблії
+- `FindPage` (B-35): той самий `UNIQUE` звужує до однієї книги, далі — перебір кількох тисяч рядків; окремий індекс по `StartPageNumber` не потрібен
 - Фільтри `IN (…)` і `ModuleId = … AND ChapterOrder = …` у пошуку йдуть по вже знайдених FTS5-рядках
 - View мов (`Paragraphs_<lang>`, `Verses_<lang>`) потрібні лише як content для FTS: за rowid вони звертаються до PK
 
