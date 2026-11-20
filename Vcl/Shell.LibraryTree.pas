@@ -35,6 +35,13 @@
   The check boxes are ours, not VST's (toCheckSupport is off): the state lives
   in FChecked, a click inside the box zone or Space toggles it.
 
+  The filter (Slovo_04 A.3, E-25): SetFilter hides the rows FilterLibrary
+  leaves out (VST IsVisible), opens the series that keep books and paints the
+  match under the letters. The series' own folding is kept aside while the
+  filter is on and comes back when it is cleared. Row heights follow the
+  VISIBLE neighbours - the margins of a nested list, the first category.
+  The check boxes do not care about the filter (Vitalii, 2026-11-20).
+
   The form decides what a click means (ViewModel calls); the tree only reports
   which node was activated or checked. *)
 
@@ -53,6 +60,7 @@ uses
   VirtualTrees.BaseTree,
   Core.Domain,
   Presentation.MainViewModel,
+  Presentation.LibraryFilter,
   Shell.FlatControls;
 
 type
@@ -68,12 +76,19 @@ type
     FTreeNodes: TArray<PVirtualNode>;          // index in FNodes -> VST node; nil = no row
     FChecked: TArray<Boolean>;                 // lnModule / lnBibleTranslation
     FActive: Integer;                          // the chapter being read; -1 = none
+    FFilter: TLibraryFilterResult;             // E-25; not Active - no filter
+    FSavedExpanded: TArray<Boolean>;           // the series' folding before the filter
     FOnActivate: TLibraryNodeEvent;
     FOnCheck: TLibraryCheckEvent;
 
     function Px(Value: Integer): Integer;
     function IndexOf(Node: PVirtualNode): Integer;
     function HasRow(Index: Integer): Boolean;
+    function PrevShown(Node: PVirtualNode): PVirtualNode;
+    function NextShown(Node: PVirtualNode): PVirtualNode;
+    function ShownChildren(Node: PVirtualNode): Integer;
+    procedure UpdateHeights;
+    procedure ScrollToActive;
     function IsAncestorOfActive(Index: Integer): Boolean;
     function IsBookLike(Index: Integer): Boolean;
     function BookDepth(Node: PVirtualNode): Integer;
@@ -113,6 +128,11 @@ type
     procedure Build(const Nodes: TArray<TLibraryNode>);
     // After a chapter is loaded: the dot "читаю" moves to its book, the path opens (R4-43).
     procedure SetActive(const Position: TReadingPosition);
+    // E-25: the rows whose captions match Text (and their parents) stay; '' -
+    // the whole tree as it was. The result: the counts and the first book.
+    function SetFilter(const Text: string): TLibraryFilterResult;
+    // As a click on the row of node Index (Enter in the filter).
+    procedure ActivateIndex(Index: Integer);
     // The language changed: texts come from L() while painting.
     procedure Invalidate;
     function CheckedCount: Integer;
@@ -127,6 +147,7 @@ implementation
 
 uses
   System.UITypes,
+  System.Math,
   Presentation.Localization,
   Presentation.Theme;
 
@@ -305,12 +326,12 @@ end;
 
 procedure TLibraryTree.Build(const Nodes: TArray<TLibraryNode>);
 var
-  I, H: Integer;
+  I: Integer;
   Parent, Node: PVirtualNode;
-  FirstCategory: Boolean;
 begin
-  FirstCategory := True;
   FNodes := Nodes;
+  FFilter := Default(TLibraryFilterResult);
+  FSavedExpanded := nil;
   SetLength(FTreeNodes, Length(Nodes));
   SetLength(FChecked, Length(Nodes));
   FActive := -1;
@@ -335,38 +356,147 @@ begin
       FTreeNodes[I] := Node;
       FChecked[I] := HasCheckBox(I) and Nodes[I].Checked;
     end;
-    // Heights once all siblings are known: a nested list adds its margins to
-    // its first and last row.
-    for I := 0 to High(Nodes) do
-    begin
-      Node := FTreeNodes[I];
-      if Node = nil then
-        Continue;
-      H := BookHeight;
-      if Nodes[I].Kind = lnCategory then
-      begin
-        if FirstCategory then
-          H := FirstCategoryHeight
-        else
-          H := CategoryHeight;
-        FirstCategory := False;
-      end;
-      H := Px(H);
-      if BookDepth(Node) > 0 then
-      begin
-        if Node.PrevSibling = nil then
-          Inc(H, Px(NestTop));
-        if Node.NextSibling = nil then
-          Inc(H, Px(NestBottom));
-      end;
-      FTree.NodeHeight[Node] := H;
-    end;
+    UpdateHeights;
     for I := 0 to High(Nodes) do
       if Nodes[I].Kind in [lnCategory, lnSeries] then
         FTree.Expanded[FTreeNodes[I]] := True;
   finally
     FTree.EndUpdate;
   end;
+end;
+
+// The visible neighbours of a row: the filter hides some of its siblings (E-25).
+function TLibraryTree.PrevShown(Node: PVirtualNode): PVirtualNode;
+begin
+  Result := Node.PrevSibling;
+  while (Result <> nil) and not FTree.IsVisible[Result] do
+    Result := Result.PrevSibling;
+end;
+
+function TLibraryTree.NextShown(Node: PVirtualNode): PVirtualNode;
+begin
+  Result := Node.NextSibling;
+  while (Result <> nil) and not FTree.IsVisible[Result] do
+    Result := Result.NextSibling;
+end;
+
+function TLibraryTree.ShownChildren(Node: PVirtualNode): Integer;
+var
+  Child: PVirtualNode;
+begin
+  Result := 0;
+  Child := Node.FirstChild;
+  while Child <> nil do
+  begin
+    if FTree.IsVisible[Child] then
+      Inc(Result);
+    Child := Child.NextSibling;
+  end;
+end;
+
+// Heights by the visible rows: a nested list adds its margins to its first and
+// last row; the first category has no group above it.
+procedure TLibraryTree.UpdateHeights;
+var
+  I, H: Integer;
+  Node: PVirtualNode;
+  FirstCategory: Boolean;
+begin
+  FirstCategory := True;
+  for I := 0 to High(FNodes) do
+  begin
+    Node := FTreeNodes[I];
+    if (Node = nil) or not FTree.IsVisible[Node] then
+      Continue;
+    H := BookHeight;
+    if FNodes[I].Kind = lnCategory then
+    begin
+      if FirstCategory then
+        H := FirstCategoryHeight
+      else
+        H := CategoryHeight;
+      FirstCategory := False;
+    end;
+    H := Px(H);
+    if BookDepth(Node) > 0 then
+    begin
+      if PrevShown(Node) = nil then
+        Inc(H, Px(NestTop));
+      if NextShown(Node) = nil then
+        Inc(H, Px(NestBottom));
+    end;
+    FTree.NodeHeight[Node] := H;
+  end;
+end;
+
+function TLibraryTree.SetFilter(const Text: string): TLibraryFilterResult;
+var
+  Captions: TArray<string>;
+  I: Integer;
+  WasActive: Boolean;
+  Node: PVirtualNode;
+begin
+  SetLength(Captions, Length(FNodes));
+  for I := 0 to High(FNodes) do
+    if FNodes[I].Kind = lnCategory then
+      Captions[I] := L(FNodes[I].CaptionKey)
+    else
+      Captions[I] := FNodes[I].Caption;
+  WasActive := FFilter.Active;
+  FFilter := FilterLibrary(FNodes, Captions, Text);
+  FTree.BeginUpdate;
+  try
+    if FFilter.Active and not WasActive then
+    begin
+      SetLength(FSavedExpanded, Length(FNodes));
+      for I := 0 to High(FNodes) do
+        FSavedExpanded[I] := (FTreeNodes[I] <> nil) and FTree.Expanded[FTreeNodes[I]];
+    end;
+    for I := 0 to High(FNodes) do
+    begin
+      Node := FTreeNodes[I];
+      if Node = nil then
+        Continue;
+      FTree.IsVisible[Node] := FFilter.Visible[I];
+      if FNodes[I].Kind = lnSeries then
+      begin
+        if FFilter.Active then
+          FTree.Expanded[Node] := FFilter.Visible[I]
+        else if WasActive then
+          FTree.Expanded[Node] := FSavedExpanded[I];
+      end;
+    end;
+    UpdateHeights;
+  finally
+    FTree.EndUpdate;
+  end;
+  if FFilter.Active then
+    FTree.OffsetY := 0
+  else if WasActive then
+    ScrollToActive;                          // back to the book being read
+  FTree.Invalidate;
+  Result := FFilter;
+end;
+
+procedure TLibraryTree.ActivateIndex(Index: Integer);
+begin
+  if (Index < 0) or (Index > High(FTreeNodes)) or (FTreeNodes[Index] = nil) then
+    Exit;
+  FTree.ClearSelection;
+  FTree.FocusedNode := FTreeNodes[Index];
+  FTree.Selected[FTreeNodes[Index]] := True;
+  Activate(FTreeNodes[Index]);
+end;
+
+procedure TLibraryTree.ScrollToActive;
+var
+  Row: Integer;
+begin
+  Row := FActive;
+  while (Row >= 0) and (FTreeNodes[Row] = nil) do
+    Row := FNodes[Row].Parent;
+  if Row >= 0 then
+    FTree.ScrollIntoView(FTreeNodes[Row], False);
 end;
 
 function TLibraryTree.CheckedCount: Integer;
@@ -446,6 +576,9 @@ begin
     Row := FNodes[Row].Parent;
   if Row < 0 then
     Exit;
+  // A row the filter hides stays hidden (FullyVisible would show it, E-25).
+  if FFilter.Active and not FTree.IsVisible[FTreeNodes[Row]] then
+    Exit;
   FTree.FullyVisible[FTreeNodes[Row]] := True;
   FTree.ScrollIntoView(FTreeNodes[Row], False);
   FTree.ClearSelection;
@@ -487,7 +620,7 @@ function TLibraryTree.RowBox(Node: PVirtualNode; Index: Integer; const R: TRect)
 begin
   Result := R;
   Result.Left := RowLeft(Node);
-  if (BookDepth(Node) > 0) and (Node.PrevSibling = nil) then
+  if (BookDepth(Node) > 0) and (PrevShown(Node) = nil) then
     Inc(Result.Top, Px(NestTop));
   if IsBookLike(Index) then
     Result.Bottom := Result.Top + Px(BookRow);
@@ -505,7 +638,11 @@ begin
   case N.Kind of
     lnModule:           Result := L('library.chapters', [N.Count]);
     lnBibleTranslation: Result := L('library.bibleBooks', [N.Count]);
-    lnSeries:           Result := L('library.bibleBooks', [N.Count]);   // "5 кн."
+    lnSeries:
+      if FFilter.Active and (ShownChildren(FTreeNodes[Index]) < N.Count) then
+        Result := L('library.filter.shownOf', [ShownChildren(FTreeNodes[Index]), N.Count])
+      else
+        Result := L('library.bibleBooks', [N.Count]);   // "5 кн."
   else
     Result := '';
   end;
@@ -572,6 +709,27 @@ var
     SetTextCharacterExtra(Canvas.Handle, 0);
   end;
 
+  // E-25: the filter's match under the letters - with the font already chosen.
+  procedure DrawHit(const S: string; Left, Top, Right, Bottom: Integer);
+  var
+    M: TFilterMatch;
+    A, Z, H, Y: Integer;
+  begin
+    if not FFilter.Active or (Index > High(FFilter.Matches)) then
+      Exit;
+    M := FFilter.Matches[Index];
+    if (M.Length = 0) or (M.Start + M.Length > Length(S)) then
+      Exit;
+    A := Left + Canvas.TextWidth(Copy(S, 1, M.Start));
+    Z := Min(Left + Canvas.TextWidth(Copy(S, 1, M.Start + M.Length)), Right);
+    if Z <= A then
+      Exit;
+    H := Canvas.TextHeight('Ag');
+    Y := (Top + Bottom - H) div 2;
+    PaintRoundRect(Canvas, Rect(A - 1, Y, Z + 1, Y + H), Px(2), ColorFilterHit, clNone);
+    Canvas.Brush.Style := bsClear;
+  end;
+
   procedure DrawIn(const S: string; Left, Top, Right, Bottom: Integer; Flags: Cardinal);
   begin
     TextR := Rect(Left, Top, Right, Bottom);
@@ -596,9 +754,9 @@ begin
     Y2 := R.Bottom;
     if K = Depth then
     begin
-      if Node.PrevSibling = nil then
+      if PrevShown(Node) = nil then
         Inc(Y1, Px(NestTop));
-      if Node.NextSibling = nil then
+      if NextShown(Node) = nil then
         Dec(Y2, Px(NestBottom));
     end;
     Canvas.Brush.Color := ColorNestLine;
@@ -622,6 +780,7 @@ begin
         SetTracking(Canvas, 0.12);
         X := Box.Left + Px(LabelX);
         B := Rect(X, R.Bottom - Px(CategoryBelow) - Px(CaptionLine), Right, R.Bottom - Px(CategoryBelow));
+        DrawHit(Text, B.Left, B.Top, B.Right, B.Bottom);
         Canvas.Brush.Style := bsClear;
         DrawIn(Text, B.Left, B.Top, B.Right, B.Bottom, DT_VCENTER or DT_LEFT);
         W := X + Canvas.TextWidth(Text) + Px(8);
@@ -690,6 +849,7 @@ begin
           UseFont(UiFontMediumName, BookPx, ColorAccent)
         else
           UseFont(UiFontMediumName, BookPx, ColorBookText);
+        DrawHit(N.Caption, X, Box.Top, Right, Box.Bottom);
         Canvas.Brush.Style := bsClear;
         DrawIn(N.Caption, X, Box.Top, Right, Box.Bottom, DT_VCENTER or DT_LEFT);
       end;

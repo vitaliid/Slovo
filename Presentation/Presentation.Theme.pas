@@ -37,6 +37,8 @@ const
   ColorGoToChipInk = TColor($0077553A);   // #3a5577
   ColorGoToError   = TColor($001A34A3);   // #a3341a
   ColorGoToBorder  = TColor($00E0E0E0);   // rgba(0,0,0,.12) on white
+  ColorFilterHit   = TColor($00A2E4FE);   // rgba(255,212,102,.6) on #fcfcfc: the tree filter's match (E-25)
+  ColorFilterFocus = TColor($00CFAF94);   // rgba(60,110,168,.55) on white: the filter field's border in focus
   ColorToastBack   = TColor($002F2F2F);   // #2f2f2f
   ColorBannerBack  = TColor($00E5F4FF);   // #fff4e5
   ColorBannerText  = TColor($001E4B5C);   // #5c4b1e
