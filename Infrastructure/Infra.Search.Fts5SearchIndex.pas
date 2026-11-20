@@ -9,15 +9,26 @@
                          a stemmed table silently falls back to the exact table
                          (logged once per session).
   Two steps, no limit (B-34):
-    Count*  - COUNT(*) GROUP BY chapter / Bible book over all matches, one query
-              per table (language group), the rows of all groups in one array;
+    Count*  - the rowids of all matches, one query per table (language group),
+              counted per chapter / Bible book here; the rows of all groups in
+              one array;
     Search* - one window LIMIT / OFFSET in text order or by bm25. Its modules
               must belong to one table: ranks of different tables are not
               comparable and an offset has no meaning across them.
 
+  The rowid is the address (R8-03). The producer numbers Paragraphs.Id and
+  Verses.Id in text order: a module is one run of ids, inside it the chapters
+  (Bible books) follow in their order, inside them the paragraphs (verses).
+  So a chapter, a Bible book and a module are ranges of rowids, and a match is
+  placed by its rowid alone - no JOIN for every match, and text order is the
+  order FTS5 gives the rows in. The ranges are read once, before the first
+  search, and the numbering is checked there: a library that breaks it answers
+  every search with reModuleCorrupted (the reason is in the log). The Id itself
+  still never leaves this unit (B-21).
+
   Matches are marked with char(2)/char(3) by snippet()/highlight() and cut out
-  here, so offsets are UTF-16 code units of the clean text (B-24). Synchronous,
-  stateless between calls (C-08, C-21). }
+  here, so offsets are UTF-16 code units of the clean text (B-24). Synchronous;
+  between calls it keeps only the ranges and the table names (C-08, C-21). }
 
 interface
 
@@ -55,12 +66,39 @@ type
       Language: string;
       ModuleIds: TArray<TModuleId>;   // empty = no IN filter (whole table)
     end;
+    // R8-03: the rows of a chapter (books) or of a Bible book - one range of rowids.
+    TUnitRange = record
+      ModuleId: TModuleId;
+      ChapterOrder: Integer;          // books
+      BookCode: TBookCode;            // Bible
+      Place: Integer;                 // ChapterOrder / OrderInModule: its place in the module
+      FirstId, LastId: Int64;
+    end;
+    TIdRange = record
+      FirstId, LastId: Int64;
+    end;
   private
     FDatabase: TLibraryDatabase;      // not owned
     FCatalog: TLibraryCatalog;        // not owned
     FLogger: ILogger;
     FTables: TDictionary<string, Boolean>;
     FWarnedLanguages: TList<string>;
+    // R8-03, read by NeedRanges: units by FirstId, their keys, the range of every module.
+    FRangesLoaded: Boolean;
+    FRangesProblem: string;           // <> '' - the library breaks the numbering
+    FBookUnits, FBibleUnits: TArray<TUnitRange>;
+    FBookKeys, FBibleKeys: TDictionary<string, Integer>;
+    FModuleRanges: TDictionary<TModuleId, TIdRange>;
+
+    procedure NeedRanges;
+    function LoadUnits(Kind: TContentKind): TArray<TUnitRange>;
+    procedure IndexUnits(const Units: TArray<TUnitRange>; Keys: TDictionary<string, Integer>);
+    class function UnitKey(const ModuleId: TModuleId; const Part: string): string; static;
+    // Matches per unit of Units (same indexes), over the tables of the query's scope.
+    function CountPerUnit(Kind: TContentKind; const Units: TArray<TUnitRange>;
+      const Query: TSearchQuery; const MatchExpr: string): TArray<Integer>;
+    // The units with matches, by module and then by their place in it.
+    function UnitsWithMatches(const Units: TArray<TUnitRange>; const Totals: TArray<Integer>): TArray<Integer>;
 
     procedure LoadTableNames;
     function TableFor(Kind: TContentKind; WordForms: Boolean; const Language: string): string;
@@ -87,6 +125,7 @@ implementation
 
 uses
   System.Generics.Defaults,
+  Infrastructure.SQLite3.Api,
   Infrastructure.SQLite3.Database;
 
 const
@@ -188,13 +227,254 @@ begin
   FCatalog := ACatalog;
   FLogger := ALogger;
   FWarnedLanguages := TList<string>.Create;
+  FBookKeys := TDictionary<string, Integer>.Create;
+  FBibleKeys := TDictionary<string, Integer>.Create;
+  FModuleRanges := TDictionary<TModuleId, TIdRange>.Create;
 end;
 
 destructor TFts5SearchIndex.Destroy;
 begin
+  FModuleRanges.Free;
+  FBibleKeys.Free;
+  FBookKeys.Free;
   FWarnedLanguages.Free;
   FTables.Free;
   inherited;
+end;
+
+// ---------------------------------------------------------------- ranges (R8-03)
+
+class function TFts5SearchIndex.UnitKey(const ModuleId: TModuleId; const Part: string): string;
+begin
+  Result := string(ModuleId) + #1 + Part;
+end;
+
+// The units of one kind, sorted by FirstId. Raises when the numbering is not
+// the text order (see the unit header).
+function TFts5SearchIndex.LoadUnits(Kind: TContentKind): TArray<TUnitRange>;
+const
+  RangesSQL: array[TContentKind] of string = (
+    'SELECT ModuleId, ChapterOrder, MIN(Id), MAX(Id) FROM Paragraphs GROUP BY ModuleId, ChapterOrder;',
+    'SELECT ModuleId, BookCode, MIN(Id), MAX(Id) FROM Verses GROUP BY ModuleId, BookCode;');
+  // Rows whose Id is not above the Id of the row before them in the text.
+  DisorderSQL: array[TContentKind] of string = (
+    'SELECT COUNT(*) FROM (SELECT Id, LAG(Id) OVER ' +
+    '(PARTITION BY ModuleId, ChapterOrder ORDER BY LogicalIndex) AS Prev FROM Paragraphs) ' +
+    'WHERE Id <= Prev;',
+    'SELECT COUNT(*) FROM (SELECT Id, LAG(Id) OVER ' +
+    '(PARTITION BY ModuleId, BookCode ORDER BY ChapterNumber, VerseNumber) AS Prev FROM Verses) ' +
+    'WHERE Id <= Prev;');
+  TableName: array[TContentKind] of string = ('Paragraphs', 'Verses');
+var
+  Stmt: TSQLiteStatement;
+  List: TList<TUnitRange>;
+  U: TUnitRange;
+  Book: TBookInfo;
+  Seen: TDictionary<TModuleId, Boolean>;
+  Range: TIdRange;
+  Disorder: Int64;
+  I: Integer;
+begin
+  List := TList<TUnitRange>.Create;
+  try
+    Stmt := FDatabase.Connection.Prepare(RangesSQL[Kind]);
+    try
+      while Stmt.Step do
+      begin
+        U := Default(TUnitRange);
+        U.ModuleId := Stmt.ColumnText(0);
+        if Kind = ckBook then
+        begin
+          U.ChapterOrder := Stmt.ColumnInt(1);
+          U.Place := U.ChapterOrder;
+        end
+        else
+        begin
+          U.BookCode := Stmt.ColumnText(1);
+          U.Place := -1;
+          for Book in FCatalog.Books(U.ModuleId) do
+            if Book.Ref.BookCode = U.BookCode then
+              U.Place := Book.OrderInModule;
+          if U.Place < 0 then
+            raise ESQLiteError.Create(Format('Verses of %s:%s have no row in Books',
+              [string(U.ModuleId), string(U.BookCode)]), SQLITE_CORRUPT, SQLITE_CORRUPT);
+        end;
+        U.FirstId := Stmt.ColumnInt64(2);
+        U.LastId := Stmt.ColumnInt64(3);
+        List.Add(U);
+      end;
+    finally
+      Stmt.Free;
+    end;
+
+    List.Sort(TComparer<TUnitRange>.Construct(
+      function(const L, R: TUnitRange): Integer
+      begin
+        if L.FirstId < R.FirstId then
+          Result := -1
+        else if L.FirstId > R.FirstId then
+          Result := 1
+        else
+          Result := 0;
+      end));
+    Result := List.ToArray;
+  finally
+    List.Free;
+  end;
+
+  // A module is one run of ids, and its units follow in their order.
+  Seen := TDictionary<TModuleId, Boolean>.Create;
+  try
+    for I := 0 to High(Result) do
+    begin
+      U := Result[I];
+      if (I > 0) and (Result[I - 1].LastId >= U.FirstId) then
+        raise ESQLiteError.Create(Format('%s.Id is not in text order: the ids of %s and %s overlap',
+          [TableName[Kind], string(Result[I - 1].ModuleId), string(U.ModuleId)]),
+          SQLITE_CORRUPT, SQLITE_CORRUPT);
+      if (I > 0) and (Result[I - 1].ModuleId = U.ModuleId) then
+      begin
+        if Result[I - 1].Place >= U.Place then
+          raise ESQLiteError.Create(Format('%s.Id is not in text order: module %s, unit %d after %d',
+            [TableName[Kind], string(U.ModuleId), U.Place, Result[I - 1].Place]),
+            SQLITE_CORRUPT, SQLITE_CORRUPT);
+        Range := FModuleRanges[U.ModuleId];
+        Range.LastId := U.LastId;
+        FModuleRanges[U.ModuleId] := Range;
+      end
+      else
+      begin
+        if Seen.ContainsKey(U.ModuleId) or FModuleRanges.ContainsKey(U.ModuleId) then
+          raise ESQLiteError.Create(Format('%s.Id is not in text order: module %s is not one run of ids',
+            [TableName[Kind], string(U.ModuleId)]), SQLITE_CORRUPT, SQLITE_CORRUPT);
+        Seen.Add(U.ModuleId, True);
+        Range.FirstId := U.FirstId;
+        Range.LastId := U.LastId;
+        FModuleRanges.Add(U.ModuleId, Range);
+      end;
+    end;
+  finally
+    Seen.Free;
+  end;
+
+  // Inside a unit: paragraphs by LogicalIndex, verses by chapter and number.
+  Disorder := FDatabase.Connection.QueryInt64(DisorderSQL[Kind], 0);
+  if Disorder > 0 then
+    raise ESQLiteError.Create(Format('%s.Id is not in text order: %d rows inside their chapters',
+      [TableName[Kind], Disorder]), SQLITE_CORRUPT, SQLITE_CORRUPT);
+end;
+
+procedure TFts5SearchIndex.IndexUnits(const Units: TArray<TUnitRange>;
+  Keys: TDictionary<string, Integer>);
+var
+  I: Integer;
+begin
+  Keys.Clear;
+  for I := 0 to High(Units) do
+    if Units[I].BookCode <> '' then
+      Keys.AddOrSetValue(UnitKey(Units[I].ModuleId, string(Units[I].BookCode)), I)
+    else
+      Keys.AddOrSetValue(UnitKey(Units[I].ModuleId, IntToStr(Units[I].ChapterOrder)), I);
+end;
+
+// Once, before the first search. A library that breaks the numbering is
+// remembered as such: every later call raises the same error without reading again.
+procedure TFts5SearchIndex.NeedRanges;
+begin
+  if FRangesProblem <> '' then
+    raise ESQLiteError.Create(FRangesProblem, SQLITE_CORRUPT, SQLITE_CORRUPT);
+  if FRangesLoaded then
+    Exit;
+  try
+    FModuleRanges.Clear;
+    FBookUnits := LoadUnits(ckBook);
+    FBibleUnits := LoadUnits(ckBibleTranslation);
+    IndexUnits(FBookUnits, FBookKeys);
+    IndexUnits(FBibleUnits, FBibleKeys);
+    FRangesLoaded := True;
+  except
+    on E: ESQLiteError do
+    begin
+      if E.ErrorCode = SQLITE_CORRUPT then
+        FRangesProblem := E.Message;
+      raise;
+    end;
+  end;
+end;
+
+function TFts5SearchIndex.CountPerUnit(Kind: TContentKind; const Units: TArray<TUnitRange>;
+  const Query: TSearchQuery; const MatchExpr: string): TArray<Integer>;
+var
+  G: TSearchGroup;
+  Stmt: TSQLiteStatement;
+  Scope: TDictionary<TModuleId, Boolean>;
+  InScope: TArray<Boolean>;
+  Id: Int64;
+  ModuleId: TModuleId;
+  I, U: Integer;
+begin
+  SetLength(Result, Length(Units));
+  SetLength(InScope, Length(Units));
+  for G in PlanGroups(Kind, Query) do
+  begin
+    // Which units this table answers for: all, or those of the group's modules.
+    Scope := TDictionary<TModuleId, Boolean>.Create;
+    try
+      for ModuleId in G.ModuleIds do
+        Scope.AddOrSetValue(ModuleId, True);
+      for I := 0 to High(Units) do
+        InScope[I] := (Length(G.ModuleIds) = 0) or Scope.ContainsKey(Units[I].ModuleId);
+    finally
+      Scope.Free;
+    end;
+
+    // G.Table is one of our own fixed names (TableFor), never user input.
+    // The rowids come ascending, as the units are sorted: one pass over both.
+    Stmt := FDatabase.Connection.Prepare(Format(
+      'SELECT rowid FROM %0:s WHERE %0:s MATCH ?1 ORDER BY rowid;', [G.Table]));
+    try
+      Stmt.BindText(1, MatchExpr);
+      U := 0;
+      while Stmt.Step do
+      begin
+        Id := Stmt.ColumnInt64(0);
+        while (U <= High(Units)) and (Units[U].LastId < Id) do
+          Inc(U);
+        if U > High(Units) then
+          Break;
+        if (Id >= Units[U].FirstId) and InScope[U] then
+          Inc(Result[U]);
+      end;
+    finally
+      Stmt.Free;
+    end;
+  end;
+end;
+
+function TFts5SearchIndex.UnitsWithMatches(const Units: TArray<TUnitRange>;
+  const Totals: TArray<Integer>): TArray<Integer>;
+var
+  Sorted: TArray<TUnitRange>;
+  List: TList<Integer>;
+  I: Integer;
+begin
+  Sorted := Units;                    // a local for the comparer to capture
+  List := TList<Integer>.Create;
+  try
+    for I := 0 to High(Totals) do
+      if Totals[I] > 0 then
+        List.Add(I);
+    List.Sort(TComparer<Integer>.Construct(
+      function(const L, R: Integer): Integer
+      begin
+        Result := CompareStr(string(Sorted[L].ModuleId), string(Sorted[R].ModuleId));
+        if Result = 0 then
+          Result := Sorted[L].Place - Sorted[R].Place;
+      end));
+    Result := List.ToArray;
+  finally
+    List.Free;
+  end;
 end;
 
 procedure TFts5SearchIndex.LoadTableNames;
@@ -347,43 +627,24 @@ end;
 
 function TFts5SearchIndex.CountBook(const Query: TSearchQuery): TResult<TArray<TBookHitCount>>;
 var
-  MatchExpr, SQL: string;
+  MatchExpr: string;
   Counts: TArray<TBookHitCount>;
-  I: Integer;
-  G: TSearchGroup;
-  Stmt: TSQLiteStatement;
+  Totals: TArray<Integer>;
   Item: TBookHitCount;
+  U: Integer;
 begin
   Counts := nil;
   if not TryBuildMatchQuery(Query.Text, MatchModeOf(Query), MatchExpr) then
     Exit(TResult<TArray<TBookHitCount>>.Success(Counts));
   try
-    for G in PlanGroups(ckBook, Query) do
+    NeedRanges;
+    Totals := CountPerUnit(ckBook, FBookUnits, Query, MatchExpr);
+    for U in UnitsWithMatches(FBookUnits, Totals) do
     begin
-      // G.Table is one of our own fixed names (TableFor), never user input.
-      SQL := Format(
-        'SELECT p.ModuleId, p.ChapterOrder, COUNT(*) ' +
-        'FROM %0:s JOIN Paragraphs p ON p.Id = %0:s.rowid ' +
-        'WHERE %0:s MATCH ?1', [G.Table]);
-      if Length(G.ModuleIds) > 0 then
-        SQL := SQL + ' AND p.ModuleId ' + InClause(Length(G.ModuleIds), 2);
-      SQL := SQL + ' GROUP BY p.ModuleId, p.ChapterOrder ORDER BY p.ModuleId, p.ChapterOrder;';
-
-      Stmt := FDatabase.Connection.Prepare(SQL);
-      try
-        Stmt.BindText(1, MatchExpr);
-        for I := 0 to High(G.ModuleIds) do
-          Stmt.BindText(I + 2, G.ModuleIds[I]);
-        while Stmt.Step do
-        begin
-          Item.ModuleId := Stmt.ColumnText(0);
-          Item.ChapterOrder := Stmt.ColumnInt(1);
-          Item.Count := Stmt.ColumnInt(2);
-          Counts := Counts + [Item];
-        end;
-      finally
-        Stmt.Free;
-      end;
+      Item.ModuleId := FBookUnits[U].ModuleId;
+      Item.ChapterOrder := FBookUnits[U].ChapterOrder;
+      Item.Count := Totals[U];
+      Counts := Counts + [Item];
     end;
     Result := TResult<TArray<TBookHitCount>>.Success(Counts);
   except
@@ -397,43 +658,24 @@ end;
 
 function TFts5SearchIndex.CountBible(const Query: TSearchQuery): TResult<TArray<TBibleHitCount>>;
 var
-  MatchExpr, SQL: string;
+  MatchExpr: string;
   Counts: TArray<TBibleHitCount>;
-  I: Integer;
-  G: TSearchGroup;
-  Stmt: TSQLiteStatement;
+  Totals: TArray<Integer>;
   Item: TBibleHitCount;
+  U: Integer;
 begin
   Counts := nil;
   if not TryBuildMatchQuery(Query.Text, MatchModeOf(Query), MatchExpr) then
     Exit(TResult<TArray<TBibleHitCount>>.Success(Counts));
   try
-    for G in PlanGroups(ckBibleTranslation, Query) do
+    NeedRanges;
+    Totals := CountPerUnit(ckBibleTranslation, FBibleUnits, Query, MatchExpr);
+    for U in UnitsWithMatches(FBibleUnits, Totals) do
     begin
-      SQL := Format(
-        'SELECT v.ModuleId, v.BookCode, COUNT(*) ' +
-        'FROM %0:s JOIN Verses v ON v.Id = %0:s.rowid ' +
-        'JOIN Books b ON b.ModuleId = v.ModuleId AND b.BookCode = v.BookCode ' +
-        'WHERE %0:s MATCH ?1', [G.Table]);
-      if Length(G.ModuleIds) > 0 then
-        SQL := SQL + ' AND v.ModuleId ' + InClause(Length(G.ModuleIds), 2);
-      SQL := SQL + ' GROUP BY v.ModuleId, v.BookCode ORDER BY v.ModuleId, b.OrderInModule;';
-
-      Stmt := FDatabase.Connection.Prepare(SQL);
-      try
-        Stmt.BindText(1, MatchExpr);
-        for I := 0 to High(G.ModuleIds) do
-          Stmt.BindText(I + 2, G.ModuleIds[I]);
-        while Stmt.Step do
-        begin
-          Item.ModuleId := Stmt.ColumnText(0);
-          Item.BookCode := Stmt.ColumnText(1);
-          Item.Count := Stmt.ColumnInt(2);
-          Counts := Counts + [Item];
-        end;
-      finally
-        Stmt.Free;
-      end;
+      Item.ModuleId := FBibleUnits[U].ModuleId;
+      Item.BookCode := FBibleUnits[U].BookCode;
+      Item.Count := Totals[U];
+      Counts := Counts + [Item];
     end;
     Result := TResult<TArray<TBibleHitCount>>.Success(Counts);
   except
@@ -486,6 +728,8 @@ var
   Error: TResultError;
   Stmt: TSQLiteStatement;
   Item: TBookSearchResult;
+  Range: TIdRange;
+  ByRange: Boolean;
 begin
   Items := nil;
   if (Window.Count <= 0) or not TryBuildMatchQuery(Query.Text, MatchModeOf(Query), MatchExpr) then
@@ -497,25 +741,43 @@ begin
         Exit(TResult<TArray<TBookSearchResult>>.Success(Items));
       Exit(TResult<TArray<TBookSearchResult>>.Failure(Error));
     end;
+    NeedRanges;
     N := Length(G.ModuleIds);
+    // R8-03: one book in text order is its range of rowids, in the order FTS5
+    // gives them - no filter after the match and nothing to sort.
+    ByRange := (Window.Order = soText) and (N = 1);
+    if ByRange and not FModuleRanges.TryGetValue(G.ModuleIds[0], Range) then
+      Exit(TResult<TArray<TBookSearchResult>>.Success(Items));   // a book without paragraphs
     // G.Table is one of our own fixed names (TableFor), never user input.
     SQL := Format(
       'SELECT p.ModuleId, p.ChapterOrder, p.LogicalIndex, p.StartPageNumber, p.ParagraphOnPage, ' +
       'snippet(%0:s, 0, char(2), char(3), ''…'', %1:d) ' +
       'FROM %0:s JOIN Paragraphs p ON p.Id = %0:s.rowid ' +
-      'WHERE %0:s MATCH ?1 AND p.ModuleId ', [G.Table, SnippetTokens]) + InClause(N, 2);
-    // The rowid breaks ties of equal ranks: windows must not overlap or skip rows.
-    if Window.Order = soRelevance then
-      SQL := SQL + Format(' ORDER BY rank, %s.rowid', [G.Table])
+      'WHERE %0:s MATCH ?1', [G.Table, SnippetTokens]);
+    if ByRange then
+    begin
+      N := 2;                                // ?2, ?3 - the range
+      SQL := SQL + Format(' AND %0:s.rowid BETWEEN ?2 AND ?3 ORDER BY %0:s.rowid', [G.Table]);
+    end
     else
-      SQL := SQL + ' ORDER BY p.ModuleId, p.ChapterOrder, p.LogicalIndex';
+    begin
+      SQL := SQL + ' AND p.ModuleId ' + InClause(N, 2);
+      // The rowid breaks ties of equal ranks: windows must not overlap or skip rows.
+      if Window.Order = soRelevance then
+        SQL := SQL + Format(' ORDER BY rank, %s.rowid', [G.Table])
+      else
+        SQL := SQL + ' ORDER BY p.ModuleId, p.ChapterOrder, p.LogicalIndex';
+    end;
     SQL := SQL + Format(' LIMIT ?%d OFFSET ?%d;', [N + 2, N + 3]);
 
     Stmt := FDatabase.Connection.Prepare(SQL);
     try
       Stmt.BindText(1, MatchExpr);
-      for I := 0 to N - 1 do
-        Stmt.BindText(I + 2, G.ModuleIds[I]);
+      if ByRange then
+        Stmt.BindInt64(2, Range.FirstId).BindInt64(3, Range.LastId)
+      else
+        for I := 0 to N - 1 do
+          Stmt.BindText(I + 2, G.ModuleIds[I]);
       Stmt.BindInt(N + 2, Window.Count);
       Stmt.BindInt(N + 3, Window.Offset);
       while Stmt.Step do
@@ -552,6 +814,8 @@ var
   Error: TResultError;
   Stmt: TSQLiteStatement;
   Item: TBibleSearchResult;
+  Range: TIdRange;
+  ByRange: Boolean;
 begin
   Items := nil;
   if (Window.Count <= 0) or not TryBuildMatchQuery(Query.Text, MatchModeOf(Query), MatchExpr) then
@@ -563,24 +827,43 @@ begin
         Exit(TResult<TArray<TBibleSearchResult>>.Success(Items));
       Exit(TResult<TArray<TBibleSearchResult>>.Failure(Error));
     end;
+    NeedRanges;
     N := Length(G.ModuleIds);
+    // R8-03: one translation in text order is its range of rowids - the books
+    // stand there by OrderInModule (checked by NeedRanges).
+    ByRange := (Window.Order = soText) and (N = 1);
+    if ByRange and not FModuleRanges.TryGetValue(G.ModuleIds[0], Range) then
+      Exit(TResult<TArray<TBibleSearchResult>>.Success(Items));  // a translation without verses
     SQL := Format(
       'SELECT v.ModuleId, v.BookCode, v.ChapterNumber, v.VerseNumber, ' +
       'snippet(%0:s, 0, char(2), char(3), ''…'', %1:d) ' +
-      'FROM %0:s JOIN Verses v ON v.Id = %0:s.rowid ' +
-      'JOIN Books b ON b.ModuleId = v.ModuleId AND b.BookCode = v.BookCode ' +
-      'WHERE %0:s MATCH ?1 AND v.ModuleId ', [G.Table, SnippetTokens]) + InClause(N, 2);
-    if Window.Order = soRelevance then
-      SQL := SQL + Format(' ORDER BY rank, %s.rowid', [G.Table])
+      'FROM %0:s JOIN Verses v ON v.Id = %0:s.rowid ', [G.Table, SnippetTokens]);
+    if ByRange then
+    begin
+      N := 2;                                // ?2, ?3 - the range
+      SQL := SQL + Format('WHERE %0:s MATCH ?1 AND %0:s.rowid BETWEEN ?2 AND ?3 ORDER BY %0:s.rowid',
+        [G.Table]);
+    end
     else
-      SQL := SQL + ' ORDER BY v.ModuleId, b.OrderInModule, v.ChapterNumber, v.VerseNumber';
+    begin
+      SQL := SQL + Format(
+        'JOIN Books b ON b.ModuleId = v.ModuleId AND b.BookCode = v.BookCode ' +
+        'WHERE %0:s MATCH ?1 AND v.ModuleId ', [G.Table]) + InClause(N, 2);
+      if Window.Order = soRelevance then
+        SQL := SQL + Format(' ORDER BY rank, %s.rowid', [G.Table])
+      else
+        SQL := SQL + ' ORDER BY v.ModuleId, b.OrderInModule, v.ChapterNumber, v.VerseNumber';
+    end;
     SQL := SQL + Format(' LIMIT ?%d OFFSET ?%d;', [N + 2, N + 3]);
 
     Stmt := FDatabase.Connection.Prepare(SQL);
     try
       Stmt.BindText(1, MatchExpr);
-      for I := 0 to N - 1 do
-        Stmt.BindText(I + 2, G.ModuleIds[I]);
+      if ByRange then
+        Stmt.BindInt64(2, Range.FirstId).BindInt64(3, Range.LastId)
+      else
+        for I := 0 to N - 1 do
+          Stmt.BindText(I + 2, G.ModuleIds[I]);
       Stmt.BindInt(N + 2, Window.Count);
       Stmt.BindInt(N + 3, Window.Offset);
       while Stmt.Step do
@@ -614,6 +897,7 @@ var
   Stmt: TSQLiteStatement;
   Hits: TArray<TParagraphHit>;
   Hit: TParagraphHit;
+  U: Integer;
 begin
   Hits := nil;
   if not TryBuildMatchQuery(Query.Text, MatchModeOf(Query), MatchExpr) then
@@ -621,14 +905,18 @@ begin
   if not ModuleLanguage(Ref.ModuleId, M) or (M.Kind <> ckBook) then
     Exit(TResult<TArray<TParagraphHit>>.Failure(reNotFound));
   try
+    NeedRanges;
+    // R8-03: the chapter is a range of rowids; a chapter without paragraphs has none.
+    if not FBookKeys.TryGetValue(UnitKey(Ref.ModuleId, IntToStr(Ref.ChapterOrder)), U) then
+      Exit(TResult<TArray<TParagraphHit>>.Success(Hits));
     Table := TableFor(ckBook, Query.WordForms, M.Language);
     Stmt := FDatabase.Connection.Prepare(Format(
       'SELECT p.LogicalIndex, highlight(%0:s, 0, char(2), char(3)) ' +
       'FROM %0:s JOIN Paragraphs p ON p.Id = %0:s.rowid ' +
-      'WHERE %0:s MATCH ?1 AND p.ModuleId = ?2 AND p.ChapterOrder = ?3 ' +
-      'ORDER BY p.LogicalIndex;', [Table]));
+      'WHERE %0:s MATCH ?1 AND %0:s.rowid BETWEEN ?2 AND ?3 ' +
+      'ORDER BY %0:s.rowid;', [Table]));
     try
-      Stmt.BindText(1, MatchExpr).BindText(2, Ref.ModuleId).BindInt(3, Ref.ChapterOrder);
+      Stmt.BindText(1, MatchExpr).BindInt64(2, FBookUnits[U].FirstId).BindInt64(3, FBookUnits[U].LastId);
       while Stmt.Step do
       begin
         Hit.LogicalIndex := Stmt.ColumnInt(0);
@@ -657,6 +945,7 @@ var
   Stmt: TSQLiteStatement;
   Hits: TArray<TVerseHit>;
   Hit: TVerseHit;
+  U: Integer;
 begin
   Hits := nil;
   if not TryBuildMatchQuery(Query.Text, MatchModeOf(Query), MatchExpr) then
@@ -664,15 +953,19 @@ begin
   if not ModuleLanguage(Ref.Book.ModuleId, M) or (M.Kind <> ckBibleTranslation) then
     Exit(TResult<TArray<TVerseHit>>.Failure(reNotFound));
   try
+    NeedRanges;
+    // R8-03: the range is the Bible book; the chapter is picked among its matches.
+    if not FBibleKeys.TryGetValue(UnitKey(Ref.Book.ModuleId, string(Ref.Book.BookCode)), U) then
+      Exit(TResult<TArray<TVerseHit>>.Success(Hits));
     Table := TableFor(ckBibleTranslation, Query.WordForms, M.Language);
     Stmt := FDatabase.Connection.Prepare(Format(
       'SELECT v.VerseNumber, highlight(%0:s, 0, char(2), char(3)) ' +
       'FROM %0:s JOIN Verses v ON v.Id = %0:s.rowid ' +
-      'WHERE %0:s MATCH ?1 AND v.ModuleId = ?2 AND v.BookCode = ?3 AND v.ChapterNumber = ?4 ' +
-      'ORDER BY v.VerseNumber;', [Table]));
+      'WHERE %0:s MATCH ?1 AND %0:s.rowid BETWEEN ?2 AND ?3 AND v.ChapterNumber = ?4 ' +
+      'ORDER BY %0:s.rowid;', [Table]));
     try
-      Stmt.BindText(1, MatchExpr).BindText(2, Ref.Book.ModuleId)
-        .BindText(3, Ref.Book.BookCode).BindInt(4, Ref.ChapterNumber);
+      Stmt.BindText(1, MatchExpr).BindInt64(2, FBibleUnits[U].FirstId)
+        .BindInt64(3, FBibleUnits[U].LastId).BindInt(4, Ref.ChapterNumber);
       while Stmt.Step do
       begin
         Hit.VerseNumber := Stmt.ColumnInt(0);

@@ -34,6 +34,7 @@
 
 ## 3. Обов'язки виробника перед тим, як віддати `library.db` (контракт формату — `Slovo_02`)
 
+- **`Paragraphs.Id` і `Verses.Id` — у порядку тексту** (R8-03, 2026-11-20): модуль — один неперервний відрізок `Id`, у ньому глави за `ChapterOrder` (книги Біблії — за `OrderInModule`), у главі абзаци за `LogicalIndex` (вірші — за главою й номером). На цьому стоїть пошук застосунку (`Slovo_02`, «Адреса збігу — `rowid`»); порушення — `reModuleCorrupted` на кожен пошук.
 - **Та сама `sqlite3.dll`, що й у застосунку** (R6, B-31, D-08): амальгамація SQLite + `fts5-snowball` + `libstemmer_c` з українським стемером. Інша збірка дасть базу, стемовані таблиці якої застосунок не відкриє (`no such tokenizer`) або відкриє з іншими основами слів.
 - `PRAGMA foreign_keys = ON` на час запису.
 - **Стемовані таблиці** (R6): для кожної мови з `Modules.Language`, для якої Snowball має стемер, — view `Paragraphs_<lang>` / `Verses_<lang>` і FTS-таблиця `ParagraphsStem_<lang>` / `VersesStem_<lang>` за шаблоном `Slovo_02`. Мапа ISO 639-1 → алгоритм Snowball: `uk` → `ukrainian`, `ru` → `russian`, `en` → `english`. Мова без стемера — таблиці немає.

@@ -69,6 +69,7 @@ type
     [Test] procedure FindInChapter_UnknownModule_IsNotFound;
     [Test] procedure FindInBibleChapter_WordForms;
     [Test] procedure LanguageWithoutStemmer_FallsBackToExact;
+    [Test] procedure IdsOutOfTextOrder_EverySearchIsCorrupted;
   end;
 
 implementation
@@ -498,6 +499,47 @@ begin
   Assert.AreEqual(8, R.Value[0].VerseNumber);
   Assert.AreEqual('жертву', HighlightedText(
     'І сказав Авраам: Бог Собі нагледить ягня на жертву, мій сину.', R.Value[0].Highlights[0]));
+end;
+
+// R8-03: the rowid is the address, so a library whose ids are not in text order
+// cannot be searched - and says so, instead of answering in a wrong order.
+procedure TFts5SearchIndexTests.IdsOutOfTextOrder_EverySearchIsCorrupted;
+var
+  FileName: string;
+  Db: TLibraryDatabase;
+  Catalog: TLibraryCatalog;
+  Index: ISearchIndex;
+  Logger: TTestLogger;
+  LoggerRef: IInterface;
+  Error: TResultError;
+  Ref: TChapterRef;
+begin
+  // PP chapter 1: its first row (Id 11) becomes the last paragraph of the chapter.
+  FileName := BuildTestLibrary(TPath.Combine(FDir, 'disorder.db'));
+  ExecOnLibrary(FileName, 'UPDATE Paragraphs SET LogicalIndex = 9 WHERE Id = 11;');
+
+  Logger := TTestLogger.Create;
+  LoggerRef := Logger;
+  Db := TLibraryDatabase.Create(Logger);
+  try
+    Assert.IsTrue(Db.Open(FileName, Error));
+    Catalog := TLibrary.Create(Db, Logger).LoadCatalog;
+    try
+      Index := TFts5SearchIndex.Create(Db, Catalog, Logger);
+      Assert.AreEqual(Ord(reModuleCorrupted), Ord(Index.CountBook(Q('любовь')).Error));
+      Assert.IsTrue(Logger.Contains('not in text order'));
+      Assert.AreEqual(Ord(reModuleCorrupted),
+        Ord(Index.SearchBible(Q('Бог', False, False, ['synodal-ru']), W(soText)).Error));
+      Ref.ModuleId := 'DA';
+      Ref.ChapterOrder := 1;
+      Assert.IsFalse(Index.FindInChapter(Q('жертвою'), Ref).IsSuccess);
+      Index := nil;
+    finally
+      Catalog.Free;
+    end;
+  finally
+    Db.Free;
+  end;
 end;
 
 procedure TFts5SearchIndexTests.LanguageWithoutStemmer_FallsBackToExact;

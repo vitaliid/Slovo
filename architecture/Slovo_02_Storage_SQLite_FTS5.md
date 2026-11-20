@@ -324,13 +324,15 @@ VACUUM;                         -- дефрагментація + мінімал
 
 `page_size` за потреби задається **до** наповнення.
 
+**`Paragraphs.Id` і `Verses.Id` — у порядку тексту (R8-03).** Модуль — один неперервний відрізок `Id`; у ньому глави за `ChapterOrder` (книги Біблії — за `OrderInModule`), у главі абзаци за `LogicalIndex` (вірші — за главою й номером), кожен наступний `Id` більший. Пошук на цьому стоїть («Адреса збігу — `rowid`»); база, що порушує порядок, на кожен пошук відповідає `reModuleCorrupted`.
+
 **`ModuleId` — глобально унікальний і незмінний (B-30).** Без `=`, `,`, `:`; не починається з `;`/`[` — він стає ключем у `settings.ini` (View 4, C.2). Перейменування модуля між випусками бази заборонене так само, як зміна `ChapterOrder` чи `LogicalIndex` наявного абзацу.
 
 **`Paragraphs.Text` / `Verses.Text`** можуть містити будь-які символи; CR/LF/TAB застосунок при показі замінює пробілом без зміни довжини (View 4, C.4).
 
 ### Інваріанти даних, які застосунок не перевіряє
 
-`Books.ChapterCount` (B-22), поля серій (B-25), межі офсетів (B-24), повнота стемованих таблиць (кожен рядок `Paragraphs`/`Verses` мовою зі стемером — у відповідній `*Stem_<lang>`) — дані, яким застосунок **довіряє**. Перевірки — у `Slovo_Import_Deferred.md`.
+`Books.ChapterCount` (B-22), поля серій (B-25), межі офсетів (B-24), повнота стемованих таблиць (кожен рядок `Paragraphs`/`Verses` мовою зі стемером — у відповідній `*Stem_<lang>`) — дані, яким застосунок **довіряє**. Перевірки — у `Slovo_Import_Deferred.md`. Виняток — порядок `Id` (R8-03): його `Fts5SearchIndex` перевіряє перед першим пошуком.
 
 ### Як застосунок відкриває базу
 
@@ -400,19 +402,33 @@ ORDER BY StartPageNumber DESC, ChapterOrder DESC, LogicalIndex DESC LIMIT 1;  --
 
 **Підрахунок** (`Count*`): модулі скоупу (`ModuleIds`, або всі модулі виду, якщо масив порожній) групуються за `Language`; кожна група — свій запит зі своїм `IN (…)`; рядки всіх груп складаються в один масив (кожен модуль — лише в одній групі). **Вікно** (`Search*`): усі модулі запиту — однієї таблиці, запит один (B-34); різні таблиці в одному вікні — `reInvalidQuery`. У MVP переклад = мова, тож для Біблії група мови збігається з перекладом.
 
+### Адреса збігу — `rowid` (R8-03, 2026-11-20)
+
+**`rowid` — це адреса.** Виробник нумерує `Paragraphs.Id` і `Verses.Id` у порядку тексту (обов'язок нижче, у «Вимогах до файлу бази»): модуль — один неперервний відрізок `Id`, у ньому глави (книги Біблії за `OrderInModule`) ідуть по черзі, у главі — абзаци за `LogicalIndex` (вірші — за главою й номером). Тож глава, книга Біблії й модуль — це **діапазони `rowid`**, і збіг FTS5 розкладається по главах за самим `rowid`: без `JOIN Paragraphs` на кожен збіг, а порядок тексту — це порядок, у якому FTS5 і так віддає рядки.
+
+Діапазони `Fts5SearchIndex` читає **один раз, перед першим пошуком** (ліниво), і там само перевіряє нумерацію:
+
+```sql
+SELECT ModuleId, ChapterOrder, MIN(Id), MAX(Id) FROM Paragraphs GROUP BY ModuleId, ChapterOrder;
+SELECT ModuleId, BookCode, MIN(Id), MAX(Id) FROM Verses GROUP BY ModuleId, BookCode;
+-- порушення порядку всередині глави / книги Біблії; порядок між главами й модулями — у Delphi
+SELECT COUNT(*) FROM (SELECT Id, LAG(Id) OVER (PARTITION BY ModuleId, ChapterOrder ORDER BY LogicalIndex) AS Prev
+                      FROM Paragraphs) WHERE Id <= Prev;
+SELECT COUNT(*) FROM (SELECT Id, LAG(Id) OVER (PARTITION BY ModuleId, BookCode ORDER BY ChapterNumber, VerseNumber) AS Prev
+                      FROM Verses) WHERE Id <= Prev;
+```
+
+База, що порушує нумерацію, на **кожен** пошук відповідає `reModuleCorrupted` (причина — один раз у лог, «not in text order»), а не видачею в неправильному порядку. `Id` і далі не виходить за межі Infrastructure (B-21). Заміри на справжній базі (179 946 абзаців, 2026-11-20, Python + SQLite 3.37): діапазони й перевірка — ≈160 мс один раз; підрахунок — «жертва» 2,9 → 0,9 мс, «Бог» 30 → 7,5 мс, «и» 84 → 41 мс. Справжня база нумерацію не порушує (0 порушень).
+
 ### Крок 1 — підрахунок (R7, B-34)
 
 ```sql
-SELECT p.ModuleId, p.ChapterOrder, COUNT(*)      -- → TBookHitCount
-FROM T                          -- ParagraphsFTS або ParagraphsStem_<lang> (таблиця вище)
-JOIN Paragraphs p ON p.Id = T.rowid
+SELECT rowid FROM T             -- ParagraphsFTS або ParagraphsStem_<lang> (таблиця вище)
 WHERE T MATCH :match
-  AND p.ModuleId IN (:m1, :m2, :m3)   -- B-27; при «уся бібліотека» в точній таблиці умова НЕ додається
-GROUP BY p.ModuleId, p.ChapterOrder
-ORDER BY p.ModuleId, p.ChapterOrder;
+ORDER BY rowid;                 -- R8-03: лише rowid; глава й скоуп — у Delphi за діапазонами
 ```
 
-Для Біблії — `v.ModuleId, v.BookCode, COUNT(*)` з `JOIN Books b ON b.ModuleId = v.ModuleId AND b.BookCode = v.BookCode`, `GROUP BY v.ModuleId, v.BookCode ORDER BY v.ModuleId, b.OrderInModule` → `TBibleHitCount`. Без `snippet()` і без `rank` — це перебір збігів з агрегацією, найдешевше, що FTS5 може зробити з повним набором.
+`rowid` ідуть за зростанням, діапазони глав — теж: один прохід по обох масивах дає `TBookHitCount` на кожну главу зі збігами; глави поза скоупом (`ModuleIds`, B-27) відкидаються там само, без `IN (…)` у SQL. Для Біблії — те саме з діапазонами книг → `TBibleHitCount`, книги — за модулем і `OrderInModule`. Без `snippet()`, без `rank` і без `JOIN` — найдешевше, що FTS5 може зробити з повним набором збігів.
 
 ### Крок 2 — вікно рядків (R7, B-34), приклад для книг
 
@@ -433,6 +449,8 @@ ORDER BY p.ChapterOrder, p.LogicalIndex   -- soText (один модуль)
 LIMIT :count OFFSET :offset;
 ```
 
+**R8-03: `soText` для одного модуля — діапазон замість фільтра.** `AND p.ModuleId IN (…)` і `ORDER BY` замінює `AND T.rowid BETWEEN :first AND :last ORDER BY T.rowid` (`:first`/`:last` — відрізок модуля): у плані немає ні фільтра після збігу, ні сортувальника. `JOIN Paragraphs` лишається — заради `LogicalIndex` і сторінок рядків вікна, а не заради відбору. `soRelevance` і вікно з кількома модулями — як вище.
+
 **Множина модулів (B-27).** Значення `ModuleId` прив'язуються кожне окремо — жодної конкатенації у SQL. Список короткий (≈45 модулів, оцінка IMP-3), ліміт параметрів SQLite недосяжний. Перевірки виду модуля немає (R6, R4-23): ViewModel розкладає скоуп за каталогом, а модуль не того виду в `IN (…)` просто дав би нуль рядків — він не має рядків у цій таблиці. Фільтр `IN (…)` застосовується **після** FTS5-збігу; якщо профілювання колись покаже вартість — `ModuleId UNINDEXED` у FTS-таблицях (post-MVP).
 
 **Решта правил запиту:**
@@ -442,7 +460,7 @@ LIMIT :count OFFSET :offset;
 3. **Назва глави в запиті не вибирається** — мапінг `ChapterOrder → Title` дає каталог (B-20, B-29).
 4. **Порядок — параметр вікна** (`TSearchOrder`): `soText` — адреса в книзі, `soRelevance` — `rank` (bm25). Кожне вікно сортує весь набір збігів своїх модулів заново (стану між викликами немає, C-08); далекий `OFFSET` коштує стільки ж, скільки близький, — сортування, не читання рядків.
 
-Аналогічний запит для `VersesFTS` / `VersesStem_<lang>` + `Verses` → `TBibleSearchResult` (`v.ModuleId, v.BookCode, v.ChapterNumber, v.VerseNumber` у `SELECT`); `soText` — `JOIN Books b … ORDER BY b.OrderInModule, v.ChapterNumber, v.VerseNumber`.
+Аналогічний запит для `VersesFTS` / `VersesStem_<lang>` + `Verses` → `TBibleSearchResult` (`v.ModuleId, v.BookCode, v.ChapterNumber, v.VerseNumber` у `SELECT`); `soText` — `JOIN Books b … ORDER BY b.OrderInModule, v.ChapterNumber, v.VerseNumber`; R8-03: для одного перекладу — `T.rowid BETWEEN` його відрізка й `ORDER BY T.rowid`, без `JOIN Books`.
 
 ### Збіги в главі — `FindInChapter` / `FindInBibleChapter` (R6, E-08)
 
@@ -454,9 +472,11 @@ SELECT p.LogicalIndex,
 FROM T
 JOIN Paragraphs p ON p.Id = T.rowid
 WHERE T MATCH :match
-  AND p.ModuleId = :m AND p.ChapterOrder = :c
-ORDER BY p.LogicalIndex;
+  AND T.rowid BETWEEN :first AND :last     -- R8-03: діапазон глави (до R8-03 — p.ModuleId = :m AND p.ChapterOrder = :c)
+ORDER BY T.rowid;
 ```
+
+Для Біблії діапазон — книга, а глава відбирається серед її збігів (`AND v.ChapterNumber = :c`).
 
 `Fts5SearchIndex` вирізає маркери й повертає `TArray<TParagraphHit>` — `LogicalIndex` + `Highlights` (офсети в `Paragraphs.Text`, UTF-16). Для Біблії — `v.VerseNumber` і `TVerseHit`. Порядку за релевантністю тут немає — лише порядок у главі. Запит на одну главу дешевий: FTS знаходить збіги в індексі, `JOIN` відсікає чужі глави, `highlight()` рахується лише для кількох абзаців.
 
@@ -582,4 +602,4 @@ end;
 - [ ] Sprint 3: `CountPrefix` — живий лічильник входжень; режим `mmPrefix` із зірочкою на останньому терміні; повертається в контракт `ISearchIndex`
 - [ ] Post-MVP: власний токенізатор (`ё→е`, апострофи) поверх Snowball — лише `rebuild`
 - [ ] Post-MVP: словник форм замість стемера, якщо чергування заважатимуть
-- [ ] Post-MVP: `ModuleId UNINDEXED` у FTS-таблицях, якщо профілювання покаже вартість фільтра
+- [x] ~~Post-MVP: `ModuleId UNINDEXED` у FTS-таблицях, якщо профілювання покаже вартість фільтра~~ — не потрібно: глава й модуль — діапазони `rowid` (R8-03)
