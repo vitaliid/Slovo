@@ -155,6 +155,17 @@ type
     function ModuleId: TModuleId;
   end;
 
+  // ---------------------------------------------------------------- go to a page
+
+  // B-35 (R8). Where "go to page N" of a book leads. Found = False - N is outside
+  // FirstPage..LastPage; LastPage = 0 - the book has no page numbers at all.
+  TPageLookup = record
+    Found: Boolean;
+    Paragraph: TParagraphRef;         // the first paragraph of the page, or the one the page starts inside
+    StartsInside: Boolean;            // the page starts in the middle of Paragraph - no [N] marker in the text
+    FirstPage, LastPage: Integer;     // the smallest and the largest StartPageNumber; 0 = no pages
+  end;
+
   // ---------------------------------------------------------------- result
 
   TResultError = (

@@ -19,6 +19,9 @@ type
     function LoadCatalog: TLibraryCatalog;
     function GetChapterContent(const Ref: TChapterRef): TResult<TChapterContent>;
     function GetBibleChapter(const Ref: TBibleChapterRef): TResult<TBibleChapterContent>;
+    // B-35 (R8): where page N of a book leads. A page the book does not have is
+    // roSuccess with Found = False; reNotFound - no such module.
+    function FindPage(const ModuleId: TModuleId; PageNumber: Integer): TResult<TPageLookup>;
   end;
 
   // Synchronous (C-08, C-21). CountPrefix is deliberately absent until Sprint 3.

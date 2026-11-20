@@ -5,7 +5,8 @@
   LoadCatalog - three queries, once, in phase 0; any failure raises (A-07) and
   the composition root shows startup.libraryCorrupted.
   GetChapterContent / GetBibleChapter - one chapter at a time; failures come
-  back as TResultError (A-06) and the technical detail goes to the log. }
+  back as TResultError (A-06) and the technical detail goes to the log.
+  FindPage (B-35) - up to three short queries inside one book. }
 
 interface
 
@@ -27,6 +28,7 @@ type
     function LoadCatalog: TLibraryCatalog;
     function GetChapterContent(const Ref: TChapterRef): TResult<TChapterContent>;
     function GetBibleChapter(const Ref: TBibleChapterRef): TResult<TBibleChapterContent>;
+    function FindPage(const ModuleId: TModuleId; PageNumber: Integer): TResult<TPageLookup>;
   end;
 
 implementation
@@ -283,6 +285,96 @@ begin
         [string(Ref.Book.ModuleId), string(Ref.Book.BookCode), Ref.ChapterNumber,
          E.ClassName, E.Message]));
       Result := TResult<TBibleChapterContent>.Failure(SQLiteErrorToResult(E));
+    end;
+  end;
+end;
+
+// B-35, Slovo_02 "FindPage". Pages do not always grow in the order of the text
+// (some volumes restart the numbering), so the page that starts inside a paragraph
+// is found by its NUMBER - the largest smaller one - and a page that occurs twice
+// is the first one in the order of the book.
+function TLibrary.FindPage(const ModuleId: TModuleId; PageNumber: Integer): TResult<TPageLookup>;
+var
+  Db: TSQLiteDatabase;
+  Stmt: TSQLiteStatement;
+  Lookup: TPageLookup;
+
+  function ReadParagraph(Row: TSQLiteStatement): Boolean;
+  begin
+    Result := Row.Step;
+    if Result then
+    begin
+      Lookup.Paragraph.Chapter.ModuleId := ModuleId;
+      Lookup.Paragraph.Chapter.ChapterOrder := Row.ColumnInt(0);
+      Lookup.Paragraph.LogicalIndex := Row.ColumnInt(1);
+    end;
+  end;
+
+begin
+  try
+    Db := FDatabase.Connection;
+    Lookup := Default(TPageLookup);
+
+    Stmt := Db.Prepare('SELECT 1 FROM Modules WHERE ModuleId = ?1;');
+    try
+      Stmt.BindText(1, ModuleId);
+      if not Stmt.Step then
+        Exit(TResult<TPageLookup>.Failure(reNotFound));
+    finally
+      Stmt.Free;
+    end;
+
+    // MIN/MAX over no rows is NULL; ColumnInt reads it as 0 = no pages.
+    Stmt := Db.Prepare(
+      'SELECT MIN(StartPageNumber), MAX(StartPageNumber) FROM Paragraphs ' +
+      'WHERE ModuleId = ?1 AND StartPageNumber > 0;');
+    try
+      Stmt.BindText(1, ModuleId);
+      if Stmt.Step then
+      begin
+        Lookup.FirstPage := Stmt.ColumnInt(0);
+        Lookup.LastPage := Stmt.ColumnInt(1);
+      end;
+    finally
+      Stmt.Free;
+    end;
+
+    if (Lookup.LastPage > 0) and (PageNumber >= Lookup.FirstPage) and (PageNumber <= Lookup.LastPage) then
+    begin
+      Stmt := Db.Prepare(
+        'SELECT ChapterOrder, LogicalIndex FROM Paragraphs ' +
+        'WHERE ModuleId = ?1 AND StartPageNumber = ?2 ' +
+        'ORDER BY ChapterOrder, LogicalIndex LIMIT 1;');
+      try
+        Stmt.BindText(1, ModuleId).BindInt(2, PageNumber);
+        Lookup.Found := ReadParagraph(Stmt);
+      finally
+        Stmt.Free;
+      end;
+
+      if not Lookup.Found then
+      begin
+        Stmt := Db.Prepare(
+          'SELECT ChapterOrder, LogicalIndex FROM Paragraphs ' +
+          'WHERE ModuleId = ?1 AND StartPageNumber > 0 AND StartPageNumber < ?2 ' +
+          'ORDER BY StartPageNumber DESC, ChapterOrder DESC, LogicalIndex DESC LIMIT 1;');
+        try
+          Stmt.BindText(1, ModuleId).BindInt(2, PageNumber);
+          Lookup.Found := ReadParagraph(Stmt);
+          Lookup.StartsInside := Lookup.Found;
+        finally
+          Stmt.Free;
+        end;
+      end;
+    end;
+
+    Result := TResult<TPageLookup>.Success(Lookup);
+  except
+    on E: Exception do
+    begin
+      FLogger.LogError('Library', Format('FindPage %s:%d: %s: %s',
+        [string(ModuleId), PageNumber, E.ClassName, E.Message]));
+      Result := TResult<TPageLookup>.Failure(SQLiteErrorToResult(E));
     end;
   end;
 end;

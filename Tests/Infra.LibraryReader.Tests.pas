@@ -1,7 +1,8 @@
 ﻿unit Infra.LibraryReader.Tests;
 
 { TLibrary (ILibrary) on the fixture library: LoadCatalog, chapter content with
-  ORDER BY, page fields and inline spans, Bible chapters, not-found answers. }
+  ORDER BY, page fields and inline spans, Bible chapters, not-found answers,
+  FindPage (B-35). }
 
 interface
 
@@ -34,6 +35,15 @@ type
     [Test] procedure GetChapterContent_UnknownChapter_IsNotFound;
     [Test] procedure GetBibleChapter_OrderedVerses;
     [Test] procedure GetBibleChapter_UnknownChapter_IsNotFound;
+
+    // B-35
+    [Test] procedure FindPage_PageThatStartsAParagraph;
+    [Test] procedure FindPage_FirstOfSeveralParagraphsOnThePage;
+    [Test] procedure FindPage_PageInsideAParagraph;
+    [Test] procedure FindPage_OutsideTheBook_NotFoundWithBounds;
+    [Test] procedure FindPage_BookWithoutPages;
+    [Test] procedure FindPage_UnknownModule_IsNotFound;
+    [Test] procedure FindPage_RestartedNumbering_ByNumberNotPosition;
   end;
 
 implementation
@@ -202,6 +212,109 @@ begin
   Assert.IsTrue(R.Error = reNotFound);
   R := FLibrary.GetBibleChapter(BibleRef('kjv-en', 'MAT', 1));
   Assert.IsTrue(R.Error = reNotFound);
+end;
+
+{ FindPage (B-35). Fixture pages of PP: chapter 1 - 33, 33, 33, 33, 34;
+  chapter 2 - 44, 44; chapter 3 - 52, 52. SC has no pages. }
+
+procedure TLibraryTests.FindPage_PageThatStartsAParagraph;
+var
+  R: TResult<TPageLookup>;
+begin
+  R := FLibrary.FindPage('PP', 34);
+  Assert.IsTrue(R.IsSuccess);
+  Assert.IsTrue(R.Value.Found);
+  Assert.IsFalse(R.Value.StartsInside);
+  Assert.AreEqual(1, R.Value.Paragraph.Chapter.ChapterOrder);
+  Assert.AreEqual(5, R.Value.Paragraph.LogicalIndex);
+  Assert.AreEqual('PP', string(R.Value.Paragraph.Chapter.ModuleId));
+end;
+
+procedure TLibraryTests.FindPage_FirstOfSeveralParagraphsOnThePage;
+var
+  R: TResult<TPageLookup>;
+begin
+  R := FLibrary.FindPage('PP', 44);
+  Assert.IsTrue(R.Value.Found);
+  Assert.AreEqual(2, R.Value.Paragraph.Chapter.ChapterOrder);
+  Assert.AreEqual(1, R.Value.Paragraph.LogicalIndex, 'the first paragraph of the page');
+  Assert.AreEqual(33, R.Value.FirstPage);
+  Assert.AreEqual(52, R.Value.LastPage);
+end;
+
+procedure TLibraryTests.FindPage_PageInsideAParagraph;
+var
+  R: TResult<TPageLookup>;
+begin
+  R := FLibrary.FindPage('PP', 40);
+  Assert.IsTrue(R.Value.Found);
+  Assert.IsTrue(R.Value.StartsInside);
+  Assert.AreEqual(1, R.Value.Paragraph.Chapter.ChapterOrder);
+  Assert.AreEqual(5, R.Value.Paragraph.LogicalIndex, 'the paragraph of page 34 runs onto page 40');
+end;
+
+procedure TLibraryTests.FindPage_OutsideTheBook_NotFoundWithBounds;
+var
+  R: TResult<TPageLookup>;
+begin
+  R := FLibrary.FindPage('PP', 53);
+  Assert.IsTrue(R.IsSuccess);
+  Assert.IsFalse(R.Value.Found);
+  Assert.AreEqual(33, R.Value.FirstPage);
+  Assert.AreEqual(52, R.Value.LastPage);
+  R := FLibrary.FindPage('PP', 32);
+  Assert.IsFalse(R.Value.Found);
+  R := FLibrary.FindPage('PP', 0);
+  Assert.IsFalse(R.Value.Found);
+end;
+
+procedure TLibraryTests.FindPage_BookWithoutPages;
+var
+  R: TResult<TPageLookup>;
+begin
+  R := FLibrary.FindPage('SC', 1);
+  Assert.IsTrue(R.IsSuccess);
+  Assert.IsFalse(R.Value.Found);
+  Assert.AreEqual(0, R.Value.LastPage);
+end;
+
+procedure TLibraryTests.FindPage_UnknownModule_IsNotFound;
+begin
+  Assert.IsTrue(FLibrary.FindPage('NOPE', 1).Error = reNotFound);
+end;
+
+procedure TLibraryTests.FindPage_RestartedNumbering_ByNumberNotPosition;
+var
+  FileName: string;
+  Db: TLibraryDatabase;
+  Lib: ILibrary;
+  Error: TResultError;
+  R: TResult<TPageLookup>;
+begin
+  // An appendix after chapter 3 restarts at page 10 and has another page 33.
+  FileName := BuildTestLibrary(TPath.Combine(FDir, 'restart.db'));
+  ExecOnLibrary(FileName,
+    'INSERT INTO Chapters (ModuleId, ChapterOrder, ChapterTitle) VALUES (''PP'', 4, ''Додаток'');' +
+    'INSERT INTO Paragraphs (Id, ModuleId, ChapterOrder, LogicalIndex, Kind, Text, StartPageNumber, PageBreakOffset, ParagraphOnPage) VALUES ' +
+    '(101, ''PP'', 4, 1, 6, ''а'', 10, -1, 1), (102, ''PP'', 4, 2, 6, ''б'', 33, -1, 1);');
+  Db := TLibraryDatabase.Create(FLogger);
+  try
+    Assert.IsTrue(Db.Open(FileName, Error));
+    Lib := TLibrary.Create(Db, FLogger);
+    R := Lib.FindPage('PP', 20);
+    Assert.IsTrue(R.Value.Found);
+    Assert.IsTrue(R.Value.StartsInside);
+    Assert.AreEqual(4, R.Value.Paragraph.Chapter.ChapterOrder, 'page 10 is the largest smaller page');
+    Assert.AreEqual(1, R.Value.Paragraph.LogicalIndex);
+    Assert.AreEqual(10, R.Value.FirstPage);
+
+    R := Lib.FindPage('PP', 33);
+    Assert.AreEqual(1, R.Value.Paragraph.Chapter.ChapterOrder, 'the first page 33 in the order of the book');
+    Assert.AreEqual(1, R.Value.Paragraph.LogicalIndex);
+    Lib := nil;
+  finally
+    Db.Free;
+  end;
 end;
 
 initialization

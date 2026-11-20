@@ -25,6 +25,7 @@ type
     function LoadCatalog: TLibraryCatalog;
     function GetChapterContent(const Ref: TChapterRef): TResult<TChapterContent>;
     function GetBibleChapter(const Ref: TBibleChapterRef): TResult<TBibleChapterContent>;
+    function FindPage(const ModuleId: TModuleId; PageNumber: Integer): TResult<TPageLookup>;
   end;
 
   TFakeSearch = class(TInterfacedObject, ISearchIndex)
@@ -148,6 +149,11 @@ begin
   C := Default(TBibleChapterContent);
   C.Ref := Ref;
   Result := TResult<TBibleChapterContent>.Success(C);
+end;
+
+function TFakeLibrary.FindPage(const ModuleId: TModuleId; PageNumber: Integer): TResult<TPageLookup>;
+begin
+  Result := TResult<TPageLookup>.Success(Default(TPageLookup));
 end;
 
 { TFakeSearch }
