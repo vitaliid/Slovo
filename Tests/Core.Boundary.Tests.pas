@@ -110,7 +110,8 @@ procedure TCoreBoundaryTests.ViewModel_UsesNoVclOrInfrastructure;
 var
   FileName, Path, Violations: string;
 const
-  VclFreeUnits: array[0..1] of string = ('Presentation.MainViewModel.pas', 'Presentation.SearchResults.pas');
+  VclFreeUnits: array[0..2] of string = ('Presentation.MainViewModel.pas', 'Presentation.SearchResults.pas',
+    'Presentation.LibraryFilter.pas');
 begin
   // Presentation.SearchResults (A.4) is held to the same rule: tested without a form.
   for FileName in VclFreeUnits do

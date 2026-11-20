@@ -26,6 +26,7 @@ uses
   Presentation.Views in 'Presentation\Presentation.Views.pas',
   Presentation.SearchResults in 'Presentation\Presentation.SearchResults.pas',
   Presentation.GoToPage in 'Presentation\Presentation.GoToPage.pas',
+  Presentation.LibraryFilter in 'Presentation\Presentation.LibraryFilter.pas',
   Shell.RichEdit in 'Vcl\Shell.RichEdit.pas',
   Shell.FlatControls in 'Vcl\Shell.FlatControls.pas',
   Shell.ErrorBannerFrame in 'Vcl\Shell.ErrorBannerFrame.pas' {ErrorBannerFrame: TFrame},

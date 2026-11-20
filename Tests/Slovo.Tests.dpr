@@ -33,6 +33,7 @@ uses
   Presentation.ChapterRtf in '..\Presentation\Presentation.ChapterRtf.pas',
   Presentation.SearchResults in '..\Presentation\Presentation.SearchResults.pas',
   Presentation.GoToPage in '..\Presentation\Presentation.GoToPage.pas',
+  Presentation.LibraryFilter in '..\Presentation\Presentation.LibraryFilter.pas',
   Shell.RichEdit in '..\Vcl\Shell.RichEdit.pas',
   Slovo.TestSupport in 'Slovo.TestSupport.pas',
   Core.Domain.Tests in 'Core.Domain.Tests.pas',
@@ -45,6 +46,7 @@ uses
   Presentation.MainViewModel.Tests in 'Presentation.MainViewModel.Tests.pas',
   Presentation.ChapterRtf.Tests in 'Presentation.ChapterRtf.Tests.pas',
   Presentation.SearchResults.Tests in 'Presentation.SearchResults.Tests.pas',
+  Presentation.LibraryFilter.Tests in 'Presentation.LibraryFilter.Tests.pas',
   Shell.RichEdit.Tests in 'Shell.RichEdit.Tests.pas';
 
 var
