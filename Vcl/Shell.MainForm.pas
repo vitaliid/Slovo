@@ -40,6 +40,7 @@ uses
   Presentation.ChapterRtf,
   Presentation.Views,
   Presentation.SearchResults,
+  Presentation.LibraryFilter,
   Shell.LibraryTree,
   Shell.ChapterList,
   Shell.SearchResults,
@@ -120,6 +121,36 @@ type
     FCheckedCount: Integer;              // "Відмічені книги · N" is counted by the form (R4-42)
     procedure CreateLeftPanel;
     procedure LibraryNodeActivated(const Node: TLibraryNode);
+
+  private
+    // E-25 (Slovo_04 A.3): the filter of the tree, under «Бібліотека».
+    actFilter: TAction;
+    FFilterBox: TPanel;                  // its colour is the 1 px border; FFilterBody inside
+    FFilterBody: TPanel;
+    FFilterIcon: TPaintBox;
+    FFilterEdit: TEdit;
+    FFilterClear: TFlatButton;
+    FFilterInfo: TPanel;                 // "3 з 21" and "Enter — відкрити «…»" while the filter is on
+    FFilterCount: TLabel;
+    FFilterFirst: TLabel;
+    FFilterNone: TPanel;                 // nothing found: the line and the link to the search
+    FFilterNoneText: TLabel;
+    FFilterSearch: TLabel;
+    FFilterResult: TLibraryFilterResult;
+    FFilterHint: string;
+    FFilterEditWndProc: TWndMethod;
+    procedure CreateFilter(Content: TWinControl);
+    procedure FilterEditWndProc(var Message: TMessage);
+    procedure FilterIconPaint(Sender: TObject);
+    procedure FilterEditChange(Sender: TObject);
+    procedure FilterEditKeyPress(Sender: TObject; var Key: Char);
+    procedure FilterEditEnter(Sender: TObject);
+    procedure FilterEditExit(Sender: TObject);
+    procedure FilterClearClick(Sender: TObject);
+    procedure FilterSearchClick(Sender: TObject);
+    procedure actFilterExecute(Sender: TObject);
+    procedure ApplyFilter;
+    procedure UpdateFilterInfo;
     procedure LibraryNodeChecked(const Node: TLibraryNode; Checked: Boolean);
 
   private
@@ -145,6 +176,7 @@ type
     FSearchEdit: TEdit;
     FSearchRow: TPanel;
     FSearchIcon: TPaintBox;
+    FFindButton: TFlatButton;            // E-26: «Знайти», always on
     FScopeTitle: TLabel;
     FScope: TScopeSwitch;
     FExactPhrase: TFlatCheckBox;
@@ -173,6 +205,7 @@ type
     procedure CreateRightPanel;
     procedure OpenSearch;
     procedure RunSearch;
+    procedure FindButtonClick(Sender: TObject);
     procedure ShowSearchStatus(const Key: string; Arg: Integer = -1);
     procedure ShowSearchSummary(const Summary: TSearchSummary);
     procedure RebuildResults;
@@ -1078,11 +1111,13 @@ begin
   FLibraryTitle.Parent := Content;
   FLibraryTitle.Align := alTop;
   FLibraryTitle.AlignWithMargins := True;
-  // Mockup: aside padding 26 10 40 18, the caption 10.5 px caps, muted, 18 px below.
-  FLibraryTitle.Margins.SetBounds(ScaleValue(26), ScaleValue(26), ScaleValue(12), ScaleValue(18));
+  // Mockup: aside padding 26 10 40 18, the caption 10.5 px caps, muted, 12 px
+  // above the filter (E-25).
+  FLibraryTitle.Margins.SetBounds(ScaleValue(26), ScaleValue(26), ScaleValue(12), ScaleValue(12));
   FLibraryTitle.Font.Name := UiFontName;
   FLibraryTitle.Font.Height := -ScaleValue(11);
   FLibraryTitle.Font.Color := ColorMuted;
+  CreateFilter(Content);
 
   FLibraryHost := TPanel.Create(Self);
   FLibraryHost.Parent := Content;
@@ -1105,6 +1140,266 @@ begin
     TreeScrollTo(FLibraryTree.Control));
   FLibraryTree.OnActivate := LibraryNodeActivated;
   FLibraryTree.OnCheck := LibraryNodeChecked;
+end;
+
+{ the tree filter (E-25, Slovo_04 A.3) }
+
+// Mockup "Slovo - Фільтр дерева v4": 32 px under the caption, the border
+// rgba(0,0,0,.12) (in focus .55 of the accent), the funnel 13 px #8a8a8a, the
+// text 13 px; ✕ while there is text. Under it, while the filter is on - the
+// counts and what Enter opens, or "nothing found" with the link to the search.
+procedure TMainForm.CreateFilter(Content: TWinControl);
+
+  function NewLabel(Parent: TWinControl; Px: Integer; Color: TColor): TLabel;
+  begin
+    Result := TLabel.Create(Self);
+    Result.Parent := Parent;
+    Result.ShowAccelChar := False;
+    Result.Transparent := True;
+    Result.Font.Name := UiFontName;
+    Result.Font.Height := -ScaleValue(Px);
+    Result.Font.Color := Color;
+  end;
+
+begin
+  actFilter := TAction.Create(Self);
+  actFilter.ActionList := alMain;
+  actFilter.ShortCut := ShortCut(Ord('L'), [ssCtrl]);
+  actFilter.OnExecute := actFilterExecute;
+
+  FFilterBox := TPanel.Create(Self);
+  FFilterBox.Parent := Content;
+  FFilterBox.Top := 1000;                // alTop keeps the order of Top: under the caption
+  FFilterBox.Align := alTop;
+  FFilterBox.AlignWithMargins := True;
+  // The aside's padding 18 / 10 and the field's own margin 2 / 4.
+  FFilterBox.Margins.SetBounds(ScaleValue(20), 0, ScaleValue(14), ScaleValue(10));
+  FFilterBox.Height := ScaleValue(32);
+  FFilterBox.BevelOuter := bvNone;
+  FFilterBox.ParentBackground := False;
+  FFilterBox.Color := ColorGoToBorder;
+  FFilterBox.Padding.SetBounds(1, 1, 1, 1);
+
+  FFilterBody := TPanel.Create(Self);
+  FFilterBody.Parent := FFilterBox;
+  FFilterBody.Align := alClient;
+  FFilterBody.BevelOuter := bvNone;
+  FFilterBody.ParentBackground := False;
+  FFilterBody.Color := clWhite;
+
+  FFilterIcon := TPaintBox.Create(Self);
+  FFilterIcon.Parent := FFilterBody;
+  FFilterIcon.Align := alLeft;
+  FFilterIcon.Width := ScaleValue(9 + 13 + 8);
+  FFilterIcon.OnPaint := FilterIconPaint;
+
+  FFilterClear := TFlatButton.Create(Self, FScale);
+  FFilterClear.Parent := FFilterBody;
+  FFilterClear.Glyph := fgClose;
+  FFilterClear.Color := clWhite;
+  FFilterClear.TabStop := False;
+  FFilterClear.ShowHint := True;
+  FFilterClear.Align := alRight;
+  FFilterClear.AlignWithMargins := True;
+  FFilterClear.Margins.SetBounds(0, ScaleValue(3), ScaleValue(3), ScaleValue(3));
+  FFilterClear.Width := ScaleValue(24);
+  FFilterClear.Visible := False;
+  FFilterClear.OnClick := FilterClearClick;
+
+  FFilterEdit := TEdit.Create(Self);
+  FFilterEdit.Parent := FFilterBody;
+  FFilterEdit.BorderStyle := bsNone;
+  FFilterEdit.Color := clWhite;
+  FFilterEdit.Font.Name := UiFontName;
+  FFilterEdit.Font.Height := -ScaleValue(13);
+  FFilterEdit.Font.Color := ColorHeading;
+  FFilterEdit.ShowHint := True;
+  FFilterEdit.Align := alClient;
+  FFilterEdit.AlignWithMargins := True;
+  FFilterEdit.Margins.SetBounds(0, ScaleValue(7), ScaleValue(6), 0);
+  FFilterEdit.OnChange := FilterEditChange;
+  FFilterEdit.OnKeyPress := FilterEditKeyPress;
+  FFilterEdit.OnEnter := FilterEditEnter;
+  FFilterEdit.OnExit := FilterEditExit;
+  // The placeholder is painted by us, as in the search field (no cue banner
+  // in a borderless edit).
+  FFilterEditWndProc := FFilterEdit.WindowProc;
+  FFilterEdit.WindowProc := FilterEditWndProc;
+
+  FFilterInfo := TPanel.Create(Self);
+  FFilterInfo.Parent := Content;
+  FFilterInfo.Top := 2000;
+  FFilterInfo.Align := alTop;
+  FFilterInfo.AlignWithMargins := True;
+  FFilterInfo.Margins.SetBounds(ScaleValue(30), 0, ScaleValue(24), ScaleValue(10));
+  FFilterInfo.Height := ScaleValue(16);
+  FFilterInfo.BevelOuter := bvNone;
+  FFilterInfo.ParentBackground := False;
+  FFilterInfo.Color := ColorBackground;
+  FFilterInfo.Visible := False;
+  FFilterCount := NewLabel(FFilterInfo, 11, ColorMuted);
+  FFilterCount.Align := alLeft;
+  FFilterFirst := NewLabel(FFilterInfo, 11, ColorMuted);
+  FFilterFirst.AutoSize := False;
+  FFilterFirst.Align := alClient;
+  FFilterFirst.AlignWithMargins := True;
+  FFilterFirst.Margins.SetBounds(ScaleValue(8), 0, 0, 0);
+  FFilterFirst.Alignment := taRightJustify;
+  FFilterFirst.EllipsisPosition := epEndEllipsis;
+
+  FFilterNone := TPanel.Create(Self);
+  FFilterNone.Parent := Content;
+  FFilterNone.Top := 3000;
+  FFilterNone.Align := alTop;
+  FFilterNone.AlignWithMargins := True;
+  FFilterNone.Margins.SetBounds(ScaleValue(30), ScaleValue(4), ScaleValue(24), 0);
+  FFilterNone.Height := ScaleValue(44);
+  FFilterNone.BevelOuter := bvNone;
+  FFilterNone.ParentBackground := False;
+  FFilterNone.Color := ColorBackground;
+  FFilterNone.Visible := False;
+  FFilterNoneText := NewLabel(FFilterNone, 13, ColorMuted);
+  FFilterNoneText.Top := 0;
+  FFilterNoneText.Align := alTop;
+  FFilterSearch := NewLabel(FFilterNone, 13, ColorAccent);
+  FFilterSearch.Top := 100;
+  FFilterSearch.Align := alTop;
+  FFilterSearch.AlignWithMargins := True;
+  FFilterSearch.Margins.SetBounds(0, ScaleValue(6), 0, 0);
+  FFilterSearch.EllipsisPosition := epEndEllipsis;
+  FFilterSearch.Cursor := crHandPoint;
+  FFilterSearch.OnClick := FilterSearchClick;
+end;
+
+procedure TMainForm.FilterIconPaint(Sender: TObject);
+begin
+  PaintLineGlyph(FFilterIcon.Canvas, fgFilter,
+    Rect(ScaleValue(9), 0, ScaleValue(9 + 13), FFilterIcon.Height), ScaleValue(13), ColorMarker);
+end;
+
+procedure TMainForm.FilterEditWndProc(var Message: TMessage);
+var
+  DC: HDC;
+  Canvas: TCanvas;
+  Margins: LRESULT;
+begin
+  FFilterEditWndProc(Message);
+  if (Message.Msg <> WM_PAINT) or (FFilterEdit.GetTextLen > 0) or (FFilterHint = '') then
+    Exit;
+  DC := GetDC(FFilterEdit.Handle);
+  Canvas := TCanvas.Create;
+  try
+    Canvas.Handle := DC;
+    Canvas.Font := FFilterEdit.Font;
+    Canvas.Font.Color := ColorMarker;
+    Canvas.Brush.Style := bsClear;
+    Margins := SendMessage(FFilterEdit.Handle, EM_GETMARGINS, 0, 0);
+    Canvas.TextOut(LoWord(Margins), 0, FFilterHint);
+  finally
+    Canvas.Handle := 0;
+    Canvas.Free;
+    ReleaseDC(FFilterEdit.Handle, DC);
+  end;
+end;
+
+// Live: on every change of the text (E-25) - the tree is in memory.
+procedure TMainForm.FilterEditChange(Sender: TObject);
+begin
+  FFilterEdit.Invalidate;                // the placeholder comes and goes with the text
+  ApplyFilter;
+end;
+
+procedure TMainForm.ApplyFilter;
+begin
+  FFilterResult := FLibraryTree.SetFilter(FFilterEdit.Text);
+  UpdateFilterInfo;
+end;
+
+procedure TMainForm.UpdateFilterInfo;
+var
+  None: Boolean;
+begin
+  FFilterClear.Visible := FFilterEdit.Text <> '';
+  None := FFilterResult.Active and (FFilterResult.Shown = 0);
+  if FFilterResult.Active then
+  begin
+    FFilterCount.Caption := L('library.filter.count', [FFilterResult.Shown, FFilterResult.Total]);
+    if FFilterResult.First >= 0 then
+      FFilterFirst.Caption := L('library.filter.open', [FNodes[FFilterResult.First].Caption])
+    else
+      FFilterFirst.Caption := '';
+    FFilterNoneText.Caption := L('library.filter.none');
+    FFilterSearch.Caption := L('library.filter.search', [Trim(FFilterEdit.Text)]);
+  end;
+  // alTop keeps the order of Top: a panel shown again goes back under the field.
+  FFilterInfo.Top := FFilterBox.Top + FFilterBox.Height + 1;
+  FFilterInfo.Visible := FFilterResult.Active and not None;
+  FFilterNone.Top := FFilterInfo.Top + FFilterInfo.Height + 1;
+  FFilterNone.Visible := None;
+end;
+
+// Enter - the first book shown, as a click on it, and the focus to the text
+// (then Ctrl+G); Esc - clears the field, in an empty one takes the focus off.
+procedure TMainForm.FilterEditKeyPress(Sender: TObject; var Key: Char);
+begin
+  case Key of
+    #13:
+      begin
+        Key := #0;                       // no beep
+        if FFilterResult.Active and (FFilterResult.First >= 0) then
+        begin
+          FLibraryTree.ActivateIndex(FFilterResult.First);
+          FocusReaderOrList;
+        end;
+      end;
+    #27:
+      begin
+        Key := #0;
+        if FFilterEdit.Text <> '' then
+          FFilterEdit.Text := ''         // OnChange gives the tree back
+        else
+          FocusReaderOrList;
+      end;
+  end;
+end;
+
+procedure TMainForm.FilterEditEnter(Sender: TObject);
+begin
+  FFilterBox.Color := ColorFilterFocus;
+end;
+
+procedure TMainForm.FilterEditExit(Sender: TObject);
+begin
+  FFilterBox.Color := ColorGoToBorder;
+end;
+
+procedure TMainForm.FilterClearClick(Sender: TObject);
+begin
+  FFilterEdit.Text := '';
+  if FFilterEdit.CanFocus then
+    FFilterEdit.SetFocus;
+end;
+
+// Nothing found by the title: the text goes to the search of the books' text.
+procedure TMainForm.FilterSearchClick(Sender: TObject);
+begin
+  FSearchEdit.Text := Trim(FFilterEdit.Text);
+  OpenSearch;
+  RunSearch;
+end;
+
+// Ctrl+L: the library opens (and «Тиша» ends), the focus goes to the filter.
+procedure TMainForm.actFilterExecute(Sender: TObject);
+begin
+  if (FViewModel = nil) then
+    Exit;
+  if FSilence or not FLeftPanel.Visible then
+    SetLeftWanted(True);
+  if FFilterEdit.CanFocus then
+  begin
+    FFilterEdit.SetFocus;
+    FFilterEdit.SelectAll;
+  end;
 end;
 
 // A.4, mockup "Читання v2": 320 px, a 1 px line on the left, padding 26 22;
@@ -1211,6 +1506,19 @@ begin
   FSearchIcon.OnPaint := SearchIconPaint;
   FSearchEdit.Parent := FSearchRow;
   FSearchEdit.Align := alClient;
+  // E-26: «Знайти» at the right of the field - the calm pill of «Перейти»,
+  // always on: the tree filter is live, the search runs on Enter, and not
+  // everyone guesses that.
+  FFindButton := TFlatButton.Create(Self, FScale);
+  FFindButton.Parent := FSearchRow;
+  FFindButton.Pill := True;
+  FFindButton.FontPx := 12;
+  FFindButton.TabStop := False;
+  FFindButton.Color := ColorBackground;
+  FFindButton.Align := alRight;
+  FFindButton.AlignWithMargins := True;
+  FFindButton.Margins.SetBounds(ScaleValue(8), 0, 0, 0);
+  FFindButton.OnClick := FindButtonClick;
   Place(NewLine(TColor($00D1D1D1)), 22, 9, 22, 0);   // rgba(0,0,0,.18)
 
   FScopeTitle := NewCaption(11, 0.08);
@@ -1384,6 +1692,7 @@ begin
   FChapterList.ApplyFonts(FTheme.TextFont, FTheme.UiFont);
   FResultList.ApplyFonts(FTheme.TextFont, FTheme.UiFont);
   FSearchEdit.Font.Name := FTheme.TextFont;
+  FFilterEdit.Font.Name := FTheme.UiFont;
   FPrevLink.Font.Name := FTheme.TextFont;
   FNextLink.Font.Name := FTheme.TextFont;
   FSearchEdit.Font.Height := -ScaleValue(19);
@@ -1496,6 +1805,17 @@ begin
 
   FLibraryTitle.Caption := L('library.title').ToUpper;
   FLibraryTree.Invalidate;
+  FFilterHint := L('library.filter.placeholder');
+  FFilterEdit.Hint := L('library.filter.hint');
+  FFilterClear.Hint := L('library.filter.clear');
+  FFilterEdit.Invalidate;
+  if FFilterResult.Active then
+    ApplyFilter                          // the categories' captions are in the new language
+  else
+    UpdateFilterInfo;
+  FFindButton.Caption := L('search.find');
+  FFindButton.Hint := L('search.find.hint');
+  FFindButton.Width := FFindButton.PillWidth;
 
   FSearchTitle.Caption := L('search.title').ToUpper;
   FSearchHint := L('search.placeholder');
@@ -2268,6 +2588,11 @@ begin
     OpenSearch;
 end;
 
+procedure TMainForm.FindButtonClick(Sender: TObject);
+begin
+  RunSearch;                             // E-26: the same as Enter in the field
+end;
+
 procedure TMainForm.ShowSearchStatus(const Key: string; Arg: Integer);
 begin
   FSearchStatusKey := Key;
@@ -2788,7 +3113,7 @@ begin
   // A.6: the trees keep their own arrows and Backspace (expand, collapse, parent);
   // the search field keeps all its keys.
   if (ActiveControl = FLibraryTree.Control) or (ActiveControl = FSearchEdit)
-    or (ActiveControl = FGoToEdit) then
+    or (ActiveControl = FGoToEdit) or (ActiveControl = FFilterEdit) then
     Exit;
   case Key of
     vkLeft, vkRight:
@@ -2813,7 +3138,7 @@ end;
 procedure TMainForm.FormKeyPress(Sender: TObject; var Key: Char);
 begin
   if (Key = '/') and (ActiveControl <> FSearchEdit) and (ActiveControl <> FGoToEdit)
-    and (FViewModel <> nil) then
+    and (ActiveControl <> FFilterEdit) and (FViewModel <> nil) then
   begin
     Key := #0;
     OpenSearch;

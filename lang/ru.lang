@@ -34,6 +34,14 @@ library.checkHint = Искать в этой книге
 library.chapters = %d гл.
 library.bibleChapters = %d гл.
 library.bibleBooks = %d кн.
+library.filter.placeholder = Фильтр книг…
+library.filter.hint = Фильтр книг (Ctrl+L)
+library.filter.clear = Очистить фильтр (Esc)
+library.filter.count = %d из %d
+library.filter.open = Enter — открыть «%s»
+library.filter.none = Книг с таким названием нет
+library.filter.search = Искать «%s» в тексте книг →
+library.filter.shownOf = %d из %d
 
 category.spiritOfProphecy = Труды Э. Уайт
 category.history = История
@@ -82,6 +90,8 @@ goto.toast.inside = — страница начинается посреди а�
 
 search.title = Поиск
 search.placeholder = слово или фраза
+search.find = Найти
+search.find.hint = Найти (Enter)
 search.where = Где искать
 search.scope.all = Вся библиотека
 search.scope.checked = Отмеченные книги · %d

@@ -34,6 +34,14 @@ library.checkHint = Шукати в цій книзі
 library.chapters = %d розд.
 library.bibleChapters = %d гл.
 library.bibleBooks = %d кн.
+library.filter.placeholder = Фільтр книг…
+library.filter.hint = Фільтр книг (Ctrl+L)
+library.filter.clear = Очистити фільтр (Esc)
+library.filter.count = %d з %d
+library.filter.open = Enter — відкрити «%s»
+library.filter.none = Книг із такою назвою немає
+library.filter.search = Шукати «%s» у тексті книг →
+library.filter.shownOf = %d з %d
 
 category.spiritOfProphecy = Праці Е. Ґ. Вайт
 category.history = Історія
@@ -82,6 +90,8 @@ goto.toast.inside = — сторінка починається посеред �
 
 search.title = Пошук
 search.placeholder = слово або фраза
+search.find = Знайти
+search.find.hint = Знайти (Enter)
 search.where = Де шукати
 search.scope.all = Уся бібліотека
 search.scope.checked = Відмічені книги · %d

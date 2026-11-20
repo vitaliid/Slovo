@@ -114,7 +114,7 @@ type
     property OnClick;
   end;
 
-  TFlatButtonGlyph = (fgNone, fgMenu, fgSearch, fgMore, fgClose);
+  TFlatButtonGlyph = (fgNone, fgMenu, fgSearch, fgMore, fgClose, fgFilter);
 
   // A label with CSS letter-spacing (the mockup's caps: .08-.14em): GDI
   // SetTextCharacterExtra around DrawText, so AutoSize measures it too.
@@ -933,6 +933,16 @@ begin
         begin
           Line(4, 4, 12, 12);
           Line(12, 4, 4, 12);
+        end;
+      fgFilter:                          // the funnel of the tree filter (E-25)
+        begin
+          Pen.SetLineJoin(LineJoinRound);
+          Line(2, 3, 14, 3);
+          Line(14, 3, 9.4, 8.4);
+          Line(9.4, 8.4, 9.4, 13);
+          Line(9.4, 13, 6.6, 14.2);
+          Line(6.6, 14.2, 6.6, 8.4);
+          Line(6.6, 8.4, 2, 3);
         end;
     end;
   finally

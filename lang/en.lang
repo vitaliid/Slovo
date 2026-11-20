@@ -34,6 +34,14 @@ library.checkHint = Search in this book
 library.chapters = %d ch.
 library.bibleChapters = %d ch.
 library.bibleBooks = %d books
+library.filter.placeholder = Filter books…
+library.filter.hint = Filter books (Ctrl+L)
+library.filter.clear = Clear the filter (Esc)
+library.filter.count = %d of %d
+library.filter.open = Enter — open “%s”
+library.filter.none = No book has such a title
+library.filter.search = Search “%s” in the text of the books →
+library.filter.shownOf = %d of %d
 
 category.spiritOfProphecy = Writings of E. G. White
 category.history = History
@@ -82,6 +90,8 @@ goto.toast.inside = — the page starts inside a paragraph
 
 search.title = Search
 search.placeholder = word or phrase
+search.find = Find
+search.find.hint = Find (Enter)
 search.where = Where to search
 search.scope.all = Whole library
 search.scope.checked = Checked books · %d
