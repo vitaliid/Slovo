@@ -15,11 +15,15 @@ From the repository root (Windows):
   python tools\scripts\build_demo_library.py %TEMP%\books %TEMP%\demo.sql
   tools\sqlite\out\sqlite3.exe Win64\Debug\library.db ".read Tests/fixtures/schema.sql" ".read %TEMP%/demo.sql"
 
+Books of EGW Writings (raw JSON from tools/scripts/egw_download.py) are added with a third
+argument: build_demo_library.py %TEMP%\books %TEMP%\demo.sql Win64\egw. Every title gets its
+source in brackets - (Исследуя Слово) or (EGW Writings); a book present in both is kept twice.
+
 (hh.exe -decompile also unpacks it, but now and then silently writes nothing.)
 The custom sqlite3.exe is required: the stemmed tables need snowball (B-31).
 The target library.db must not exist yet (and Slovo must not be running).
 """
-import html, os, re, sys, unicodedata
+import html, json, os, re, sys, unicodedata
 
 # CHM section folder -> TBookCategory (bcSpiritOfProphecy, bcHistory, bcSpiritualLife, bcProphecyStudy)
 SECTIONS = [('egw_books', 0), ('history', 1), ('spiritual', 2), ('prophecy', 3)]
@@ -29,6 +33,16 @@ SERIES = [
     ('conflict-of-ages', 'Конфликт веков', 1, ['PP', 'PK', 'DA', 'AA', 'GC']),
     ('testimonies', 'Свидетельства для Церкви', 2, ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9']),
 ]
+
+# Where a book came from - shown in brackets after its title (both copies of a book are kept).
+SOURCE_CHM = 'Исследуя Слово'
+SOURCE_EGW = 'EGW Writings'
+
+# EGW Writings book id -> member of a series above (its copy sits next to the CHM one).
+EGW_SERIES = {'1802': 'PP', '1801': 'PK', '1798': 'DA', '1785': 'AA', '1800': 'GC', '14406': 'GC',
+              '1787': 'T1', '1789': 'T2', '1788': 'T3', '1790': 'T4', '1791': 'T5', '1792': 'T6',
+              '1793': 'T7', '1794': 'T8', '1795': 'T9'}
+EGW_REFCODE_RE = re.compile(r'^(.*?)\s*(\d+)(?:\.(\d+))?$')     # 'ПП 44.1' -> ('ПП', 44, 1)
 
 # The CHM table of contents gives PaM the same abbreviation as PM.
 ABBREVIATION_FIXES = {'PaM': 'ПС'}
@@ -112,7 +126,7 @@ def book(folder, module_id, out, ids):
     chapters = []            # [title, [(kind, text, page, on_page)]]
     page, on_page = 0, 0
     for name, toc_title in files:
-        text = INLINE_PAGE_RE.sub('', read(os.path.join(folder, name)))
+        text = read(os.path.join(folder, name))
         current = [toc_title, []]
         chapters.append(current)
         for attrs, inner in P_RE.findall(text):
@@ -123,10 +137,14 @@ def book(folder, module_id, out, ids):
             plain = clean(inner)
             if not plain:
                 continue
-            m = MARKER_RE.match(plain)
+            m = MARKER_RE.match(plain)          # <p><b><A NAME=PAGE52>[52]</A></b></p>
             if m:
                 page, on_page = int(m.group(1)), 0
                 continue
+            plain = clean(INLINE_PAGE_RE.sub('', inner))   # a rare marker inside a paragraph: dropped
+            if not plain:
+                continue
+            inner = INLINE_PAGE_RE.sub('', inner)
             if cls == 'glava':
                 title = CHAPTER_PREFIX_RE.sub('', plain).strip() or plain
                 if any(k != K_TITLE for k, *_ in current[1]):
@@ -147,6 +165,10 @@ def book(folder, module_id, out, ids):
             else:
                 on_page += 1
                 current[1].append((K_TEXT, plain, page, on_page))
+    return write_chapters(module_id, chapters, out, ids)
+
+
+def write_chapters(module_id, chapters, out, ids):
     order = 0
     for title, paras in chapters:
         if not any(k != K_TITLE for k, *_ in paras):
@@ -162,6 +184,36 @@ def book(folder, module_id, out, ids):
                        "StartPageNumber, PageBreakOffset, ParagraphOnPage) VALUES "
                        f"({ids[0]}, {q(module_id)}, {order}, {index}, {kind}, {q(plain)}, {start_page}, -1, {para_on_page});")
     return order
+
+
+def egw_book(data):
+    """Raw JSON of tools/scripts/egw_download.py -> chapters [title, [(kind, text, page, on_page)]].
+    One reader page of the site = one chapter; data-refcode 'ПП 44.1' gives page 44, paragraph 1."""
+    chapters, page, prefixes = [], 0, {}
+    for raw in data['chapters']:
+        current, seen_text = ['', []], False
+        for tag, cls, refcode, text in raw:
+            plain = unicodedata.normalize('NFC', text.replace('\xad', '').replace('\u200b', '').replace('\xa0', ' '))
+            on_page = 0
+            m = EGW_REFCODE_RE.match(refcode)
+            if m:
+                prefixes[m.group(1)] = prefixes.get(m.group(1), 0) + 1
+                page = int(m.group(2))
+                on_page = int(m.group(3) or 0)
+            if tag[0] == 'h':
+                if len(current[1]) <= 1:              # h1 book title, then h3 chapter title: the last one wins
+                    title = CHAPTER_PREFIX_RE.sub('', plain).strip() or plain
+                    current[0], current[1] = title, [(K_TITLE, title, 0, 0)]
+                else:
+                    current[1].append((K_HEADING, plain, 0, 0))
+            elif not seen_text and 'standard' not in cls:
+                current[1].append((K_EPIGRAPH, plain, 0, 0))   # 'Эта глава основана на...' before the text
+            else:
+                seen_text = True
+                current[1].append((K_TEXT, plain, page, on_page))
+        chapters.append(current)
+    abbr = max(prefixes, key=prefixes.get) if prefixes else ''
+    return chapters, abbr
 
 
 def bible(root, out, ids):
@@ -191,7 +243,7 @@ def bible(root, out, ids):
             out.append(f"INSERT INTO Verses VALUES ({ids[0]}, 'synodal-ru', {q(code)}, {chapter}, {verse}, {q(verse_text)});")
 
 
-def main(root, target):
+def main(root, target, egw_dir=None):
     out = ["-- Generated by tools/scripts/build_demo_library.py - demo data, not a release library.",
            "PRAGMA foreign_keys = ON;", "BEGIN;",
            "INSERT INTO Meta VALUES (1, '2026-11-06T00:00:00Z');"]
@@ -207,20 +259,37 @@ def main(root, target):
             title, author, _ = book_files(folder)
             abbr, toc_title = egw.get(name, ('', '')) if section == 'egw_books' else ('', '')
             abbr = ABBREVIATION_FIXES.get(name, abbr)
-            title = toc_title or title
+            title = f'{toc_title or title} ({SOURCE_CHM})'
             code, stitle, sorder, pos = series_of.get(name, ('', '', 0, 0))
             out.append("INSERT INTO Modules (ModuleId, Kind, Category, Language, Title, Author, Series, SeriesTitle, "
                        "SeriesOrder, SortOrder, Abbreviation) VALUES "
                        f"({q(name)}, 0, {category}, 'ru', {q(title)}, {q(author)}, {q(code)}, {q(stitle)}, "
                        f"{sorder}, {pos}, {q(abbr)});")
             modules.append((folder, name, title))
+    egw_books = []
+    for name in sorted(os.listdir(egw_dir)) if egw_dir else []:
+        if not name.endswith('.json'):
+            continue
+        data = json.load(open(os.path.join(egw_dir, name), encoding='utf-8'))
+        chapters, abbr = egw_book(data)
+        mid = 'egw_' + data['id']
+        code, stitle, sorder, pos = series_of.get(EGW_SERIES.get(data['id'], ''), ('', '', 0, 0))
+        title = f"{data['title']} ({SOURCE_EGW})"
+        out.append("INSERT INTO Modules (ModuleId, Kind, Category, Language, Title, Author, Series, SeriesTitle, "
+                   "SeriesOrder, SortOrder, Abbreviation) VALUES "
+                   f"({q(mid)}, 0, 0, 'ru', {q(title)}, 'Е. Г. Уайт', {q(code)}, {q(stitle)}, "
+                   f"{sorder}, {pos}, {q(abbr)});")
+        egw_books.append((mid, chapters, title))
     out.append("INSERT INTO Modules (ModuleId, Kind, Category, Language, Title, Author) VALUES "
                "('synodal-ru', 1, 0, 'ru', 'Библия (Синодальный)', '');")
     ids = [0]
     for folder, mid, title in modules:
         count = book(folder, mid, out, ids)
         print(f'{mid}: {count} chapters - {title}', file=sys.stderr)
-    print(f'{len(modules)} books, {ids[0]} paragraphs', file=sys.stderr)
+    for mid, chapters, title in egw_books:
+        count = write_chapters(mid, chapters, out, ids)
+        print(f'{mid}: {count} chapters - {title}', file=sys.stderr)
+    print(f'{len(modules) + len(egw_books)} books, {ids[0]} paragraphs', file=sys.stderr)
     ids = [0]
     bible(root, out, ids)
     print(f'synodal-ru: {ids[0]} verses', file=sys.stderr)
@@ -234,6 +303,6 @@ def main(root, target):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        sys.exit('usage: build_demo_library.py <unpacked books.chm folder> <out.sql>')
-    main(sys.argv[1], sys.argv[2])
+    if len(sys.argv) not in (3, 4):
+        sys.exit('usage: build_demo_library.py <unpacked books.chm folder> <out.sql> [<egw json folder>]')
+    main(*sys.argv[1:])
