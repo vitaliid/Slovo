@@ -41,6 +41,11 @@ procedure ScrollToChar(Reader: TRichEdit; CharPos: Integer);
 // may repeat all the visible ones.
 procedure PaintMatchBoxes(Reader: TRichEdit; const Starts, Lens: TArray<Integer>; Focus, EmPx: Integer);
 
+// E-24: the amber strip at the left edge of the reader beside the paragraph a
+// page leads to - from its first line to its last. StartChar / Len - the
+// paragraph in the control (its text, after the marker). Call after WM_PAINT.
+procedure PaintParagraphMark(Reader: TRichEdit; StartChar, Len, EmPx: Integer);
+
 implementation
 
 uses
@@ -232,6 +237,48 @@ begin
           PaintOne(Starts[I], Lens[I], ColorHitCurrent)
         else
           PaintOne(Starts[I], Lens[I], ColorHitOther);
+  finally
+    ReleaseDC(Reader.Handle, DC);
+  end;
+end;
+
+procedure PaintParagraphMark(Reader: TRichEdit; StartChar, Len, EmPx: Integer);
+var
+  DC: HDC;
+  Client, Bar: TRect;
+  P: TPointL;
+  FirstTop, LastTop, LastLine, LineHeight, Above: Integer;
+  Brush: HBRUSH;
+
+  function TopOf(CharPos: Integer): Integer;
+  begin
+    P.x := 0;
+    P.y := 0;
+    SendMessage(Reader.Handle, EM_POSFROMCHAR, WPARAM(@P), CharPos);
+    Result := P.y;
+  end;
+
+begin
+  if (Len <= 0) or not Reader.HandleAllocated then
+    Exit;
+  Winapi.Windows.GetClientRect(Reader.Handle, Client);
+  // The text's lines are 1.72 em with the extra height above the letters (see
+  // PaintMatchBoxes): the strip starts at the letters of the first line and
+  // ends under the descenders of the last.
+  LineHeight := Round(EmPx * 1.72);
+  Above := LineHeight - Round(EmPx * 1.1);
+  FirstTop := TopOf(StartChar);
+  LastLine := Integer(SendMessage(Reader.Handle, EM_EXLINEFROMCHAR, 0, StartChar + Len - 1));
+  LastTop := TopOf(Integer(SendMessage(Reader.Handle, EM_LINEINDEX, LastLine, 0)));
+  Bar := Rect(Client.Left, FirstTop + Above, Client.Left + Max(EmPx div 7, 3),
+    LastTop + LineHeight + Round(EmPx * 0.25));
+  if (Bar.Bottom <= Client.Top) or (Bar.Top >= Client.Bottom) then
+    Exit;
+  DC := GetDC(Reader.Handle);
+  try
+    Brush := CreateSolidBrush(ColorToRGB(ColorGoToMark));
+    FillRect(DC, Bar, Brush);
+    DeleteObject(Brush);
   finally
     ReleaseDC(Reader.Handle, DC);
   end;

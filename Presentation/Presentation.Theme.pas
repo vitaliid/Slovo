@@ -32,6 +32,12 @@ const
   ColorAccentHover = TColor($00955F2F);   // #2f5f95
   ColorHitCurrent  = TColor($0066D4FF);   // #FFD466: the match being looked at - amber, unlike the others
   ColorHitOther    = TColor($00F2E6DC);   // #DCE6F2
+  ColorGoToMark    = TColor($0000A8E0);   // #E0A800: the strip beside the paragraph a page leads to (E-24)
+  ColorGoToChip    = TColor($00F7F2EE);   // #eef2f7: the book's name in the go-to field
+  ColorGoToChipInk = TColor($0077553A);   // #3a5577
+  ColorGoToError   = TColor($001A34A3);   // #a3341a
+  ColorGoToBorder  = TColor($00E0E0E0);   // rgba(0,0,0,.12) on white
+  ColorToastBack   = TColor($002F2F2F);   // #2f2f2f
   ColorBannerBack  = TColor($00E5F4FF);   // #fff4e5
   ColorBannerText  = TColor($001E4B5C);   // #5c4b1e
 

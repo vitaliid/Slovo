@@ -218,6 +218,22 @@ type
     FSplitGuide: TPanel;                 // the line that follows the mouse meanwhile
     // E-23: the width of the text column - a switch of three segments in the header.
     FTextWidthMode: Integer;             // 0 narrow, 1 medium, 2 wide
+    // E-24 (Slovo_04 A.7): go to a page of the current book.
+    actGoTo: TAction;
+    FGoToButton: TFlatButton;
+    FGoToPanel: TPanel;                  // its colour is the 1 px border; FGoToBody inside
+    FGoToBody: TPanel;
+    FGoToChip: TLabel;
+    FGoToEdit: TEdit;
+    FGoToGo: TFlatButton;
+    FGoToStatus: TLabel;
+    FGoToKeys: TLabel;
+    FGoToTarget: TGoToTarget;            // what the field resolves to now
+    FGoToMarkTimer: TTimer;
+    FMarkStart, FMarkLen: Integer;       // the paragraph with the strip; FMarkLen 0 = none
+    FToast: TPanel;
+    FToastText: TLabel;
+    FToastTimer: TTimer;
     FWidthSwitch: TWidthSwitch;
     FCenterBar: TThinScrollBar;
     FRightBar: TThinScrollBar;
@@ -239,6 +255,19 @@ type
     procedure SplitMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure SplitDblClick(Sender: TObject);
     procedure WidthSwitchChanged(Sender: TObject);
+    procedure CreateGoTo;
+    procedure actGoToExecute(Sender: TObject);
+    procedure OpenGoTo;
+    procedure CloseGoTo;
+    procedure PlaceGoTo;
+    procedure UpdateGoToStatus;
+    procedure GoToEditChange(Sender: TObject);
+    procedure GoToEditKeyPress(Sender: TObject; var Key: Char);
+    procedure GoToGoClick(Sender: TObject);
+    procedure MarkParagraph(Target: Integer);
+    procedure GoToMarkTimer(Sender: TObject);
+    procedure ShowToast(const Text: string);
+    procedure ToastTimer(Sender: TObject);
 
   private
     // A.5, as the mockup: the user's choice of the side panels (settings.ini)
@@ -458,6 +487,7 @@ begin
   CreateRightPanel;
   CreateChapterLinks;
   CreateHitNav;
+  CreateGoTo;
   OnKeyPress := FormKeyPress;
   OnResize := FormResized;
   FScope.OnChange := ScopeChanged;
@@ -536,6 +566,10 @@ begin
   // "Slovo": caps, letter-spacing .14em.
   FBrand.Caption := 'SLOVO';
   (FBrand as TTrackedLabel).Tracking := 0.14;
+  // E-24: the first of the right group, before the zoom (Vitalii, 2026-11-20).
+  FGoToButton := NewButton(fgNone, actGoToExecute);
+  FGoToButton.Pill := True;
+  FGoToButton.FontPx := 12;
   FZoomOutButton := NewButton(fgNone, actZoomOutExecute);
   FZoomOutButton.Caption := 'A'#$2212;
   FZoomOutButton.FontPx := 13;
@@ -599,6 +633,9 @@ begin
   PlaceAt(FZoomLabel, X, ScaleValue(42), B);
   Dec(X, ScaleValue(2) + B);
   PlaceAt(FZoomOutButton, X, B, B);
+  W := FGoToButton.PillWidth;            // E-24: first in the group
+  Dec(X, ScaleValue(14) + W);
+  PlaceAt(FGoToButton, X, W, ScaleValue(30));
 end;
 
 procedure TMainForm.LibraryButtonClick(Sender: TObject);
@@ -731,6 +768,8 @@ end;
 procedure TMainForm.FormResized(Sender: TObject);
 begin
   ApplyLayout;
+  if (FGoToPanel <> nil) and FGoToPanel.Visible then
+    PlaceGoTo;
 end;
 
 procedure TMainForm.ApplyLayout;
@@ -804,6 +843,14 @@ begin
       Handled := True;
     end;
     Exit;
+  end;
+  // E-24: a click anywhere outside the go-to field closes it.
+  if (FGoToPanel <> nil) and FGoToPanel.Visible
+    and ((Msg.message = WM_LBUTTONDOWN) or (Msg.message = WM_RBUTTONDOWN) or (Msg.message = WM_NCLBUTTONDOWN)) then
+  begin
+    C := FindControl(Msg.hwnd);
+    if (C = nil) or ((C <> FGoToPanel) and not FGoToPanel.ContainsControl(C)) then
+      CloseGoTo;
   end;
   if not FSilence or (Msg.message <> WM_MOUSEMOVE) then
     Exit;
@@ -1291,25 +1338,35 @@ begin
   // without touching it.
   // R8-05: a result of the chapter that is already shown, with the same search,
   // only moves the current match - nothing is rebuilt.
+  // E-24: a page of the book (Args.Target) - the chapter shown already is not
+  // rebuilt and its current match stays; the reader scrolls to the paragraph.
   FOnChapterLoaded := procedure(Args: TChapterLoadedArgs)
     begin
       if ShowsChapter(Args.Content.Ref) then
-        FocusShownHit(Args.Focus)
+      begin
+        if Args.Target < 0 then
+          FocusShownHit(Args.Focus);
+      end
       else
       begin
         RememberShownQuery;
         RenderChapter(Args);
       end;
+      MarkParagraph(Args.Target);
     end;
   FOnBibleChapterLoaded := procedure(Args: TBibleChapterLoadedArgs)
     begin
       if ShowsChapter(Args.Content.Ref) then
-        FocusShownHit(Args.Focus)
+      begin
+        if Args.Target < 0 then
+          FocusShownHit(Args.Focus);
+      end
       else
       begin
         RememberShownQuery;
         RenderBibleChapter(Args);
       end;
+      MarkParagraph(Args.Target);
     end;
   FOnSearchCompleted := procedure(Summary: TSearchSummary) begin ShowSearchSummary(Summary); end;
   FOnErrorOccurred := procedure(Error: TResultError) begin ShowError(Error); end;
@@ -1460,6 +1517,13 @@ begin
   FNextLink.Hint := L('read.nextChapter') + ' (→)';
   FHitPrev.Hint := L('read.prevHit') + ' (Shift+F3)';
   FHitNext.Hint := L('read.nextHit') + ' (F3)';
+  FGoToButton.Caption := L('goto.button');
+  FGoToButton.Hint := L('goto.hint');
+  actGoTo.Caption := L('goto.go');
+  FGoToGo.Caption := L('goto.go');
+  FGoToKeys.Caption := L('goto.keys');
+  if FGoToPanel.Visible then
+    OpenGoTo;                            // the chip, the hint and the status in the new language
   UpdateHitNav;
   UpdateStatus;
 end;
@@ -2118,6 +2182,8 @@ begin
   if (Message.Msg = WM_PAINT) and (FShown <> scNone) and (Length(FDoc.MatchStarts) > 0) then
     PaintMatchBoxes(redReader, FDoc.MatchStarts, FDoc.MatchLens, FFocusMatch,
       Round(ScaleValue(100) * ZoomPx(FZoomStep) / 100));
+  if (Message.Msg = WM_PAINT) and (FShown <> scNone) and (FMarkLen > 0) then
+    PaintParagraphMark(redReader, FMarkStart, FMarkLen, Round(ScaleValue(100) * ZoomPx(FZoomStep) / 100));
   // A book, not an editor: no blinking caret. RichEdit shows the caret again
   // after focus, clicks, keys and selection changes, so it is hidden after each
   // of them. Extra HideCaret calls are harmless: the caret is destroyed on
@@ -2165,12 +2231,16 @@ begin
 end;
 
 procedure TMainForm.alMainUpdate(Action: TBasicAction; var Handled: Boolean);
+var
+  Scope: TGoToScope;
 begin
   if FViewModel = nil then
     Exit;
   actZoomIn.Enabled := FZoomStep < MaxZoomStep;
   actZoomOut.Enabled := FZoomStep > MinZoomStep;
   actZoomReset.Enabled := FZoomStep <> 0;
+  actGoTo.Enabled := FViewModel.GoToScope(Scope);
+  FGoToButton.Enabled := actGoTo.Enabled;
   actPrevChapter.Enabled := (FViewModel.View = rvRead) and FViewModel.CanGoPrevious;
   actNextChapter.Enabled := (FViewModel.View = rvRead) and FViewModel.CanGoNext;
   Handled := True;
@@ -2694,7 +2764,13 @@ procedure TMainForm.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftSta
 begin
   if FViewModel = nil then
     Exit;
-  if (Key = vkEscape) and FSilence then  // A.6: Esc leaves «Тиша» first
+  if (Key = vkEscape) and (FGoToPanel <> nil) and FGoToPanel.Visible then
+  begin
+    CloseGoTo;                           // A.6: the go-to field closes first
+    Key := 0;
+    Exit;
+  end;
+  if (Key = vkEscape) and FSilence then  // A.6: then Esc leaves «Тиша»
   begin
     SetSilence(False);
     Key := 0;
@@ -2711,7 +2787,8 @@ begin
   end;
   // A.6: the trees keep their own arrows and Backspace (expand, collapse, parent);
   // the search field keeps all its keys.
-  if (ActiveControl = FLibraryTree.Control) or (ActiveControl = FSearchEdit) then
+  if (ActiveControl = FLibraryTree.Control) or (ActiveControl = FSearchEdit)
+    or (ActiveControl = FGoToEdit) then
     Exit;
   case Key of
     vkLeft, vkRight:
@@ -2735,11 +2812,336 @@ end;
 // character, so it works whatever the keyboard layout.
 procedure TMainForm.FormKeyPress(Sender: TObject; var Key: Char);
 begin
-  if (Key = '/') and (ActiveControl <> FSearchEdit) and (FViewModel <> nil) then
+  if (Key = '/') and (ActiveControl <> FSearchEdit) and (ActiveControl <> FGoToEdit)
+    and (FViewModel <> nil) then
   begin
     Key := #0;
     OpenSearch;
   end;
+end;
+
+{ go to a page (E-24, Slovo_04 A.7) }
+
+procedure TMainForm.CreateGoTo;
+
+  function NewLabel(Parent: TWinControl; Px: Integer; Color: TColor): TLabel;
+  begin
+    Result := TLabel.Create(Self);
+    Result.Parent := Parent;
+    Result.ShowAccelChar := False;
+    Result.Transparent := True;
+    Result.Font.Name := UiFontName;
+    Result.Font.Height := -ScaleValue(Px);
+    Result.Font.Color := Color;
+  end;
+
+begin
+  actGoTo := TAction.Create(Self);
+  actGoTo.ActionList := alMain;
+  actGoTo.ShortCut := ShortCut(Ord('G'), [ssCtrl]);
+  actGoTo.OnExecute := actGoToExecute;
+
+  // The field over the text column, 13 px under the header (A.7). Its own
+  // colour is the border; the body is 1 px inside it.
+  FGoToPanel := TPanel.Create(Self);
+  FGoToPanel.Parent := Self;
+  FGoToPanel.Visible := False;
+  FGoToPanel.BevelOuter := bvNone;
+  FGoToPanel.ParentBackground := False;
+  FGoToPanel.Color := ColorGoToBorder;
+  FGoToPanel.Padding.SetBounds(1, 1, 1, 1);
+  FGoToPanel.Height := ScaleValue(124) + 2;
+
+  FGoToBody := TPanel.Create(Self);
+  FGoToBody.Parent := FGoToPanel;
+  FGoToBody.Align := alClient;
+  FGoToBody.BevelOuter := bvNone;
+  FGoToBody.ParentBackground := False;
+  FGoToBody.Color := clWhite;
+
+  FGoToChip := NewLabel(FGoToBody, 12, ColorGoToChipInk);
+  FGoToChip.Transparent := False;
+  FGoToChip.Color := ColorGoToChip;
+  FGoToChip.AutoSize := False;
+  FGoToChip.Layout := tlCenter;
+  FGoToChip.Alignment := taCenter;
+  FGoToChip.EllipsisPosition := epEndEllipsis;
+  FGoToChip.SetBounds(ScaleValue(16), ScaleValue(16), ScaleValue(120), ScaleValue(26));
+
+  FGoToEdit := TEdit.Create(Self);
+  FGoToEdit.Parent := FGoToBody;
+  FGoToEdit.BorderStyle := bsNone;
+  FGoToEdit.Color := clWhite;
+  FGoToEdit.Font.Name := TextFontName;
+  FGoToEdit.Font.Height := -ScaleValue(22);
+  FGoToEdit.Font.Color := ColorHeading;
+  FGoToEdit.OnChange := GoToEditChange;
+  FGoToEdit.OnKeyPress := GoToEditKeyPress;
+
+  FGoToGo := TFlatButton.Create(Self, FScale);
+  FGoToGo.Parent := FGoToBody;
+  FGoToGo.Pill := True;
+  FGoToGo.FontPx := 12;
+  FGoToGo.TabStop := False;
+  FGoToGo.OnClick := GoToGoClick;
+
+  FGoToStatus := NewLabel(FGoToBody, 13, ColorMuted);
+  FGoToStatus.AutoSize := False;
+  FGoToStatus.EllipsisPosition := epEndEllipsis;
+  FGoToKeys := NewLabel(FGoToBody, 11, ColorMuted);
+
+  FGoToMarkTimer := TTimer.Create(Self);
+  FGoToMarkTimer.Enabled := False;
+  FGoToMarkTimer.Interval := 2500;
+  FGoToMarkTimer.OnTimer := GoToMarkTimer;
+
+  // The line under the text where the page led (4 s).
+  FToast := TPanel.Create(Self);
+  FToast.Parent := pnlCenter;
+  FToast.Visible := False;
+  FToast.BevelOuter := bvNone;
+  FToast.ParentBackground := False;
+  FToast.Color := ColorToastBack;
+  FToastText := NewLabel(FToast, 13, clWhite);
+  FToastText.Left := ScaleValue(16);
+  FToastText.Top := ScaleValue(10);
+  FToastTimer := TTimer.Create(Self);
+  FToastTimer.Enabled := False;
+  FToastTimer.Interval := 4000;
+  FToastTimer.OnTimer := ToastTimer;
+end;
+
+procedure TMainForm.actGoToExecute(Sender: TObject);
+begin
+  if (FGoToPanel <> nil) and FGoToPanel.Visible then
+    CloseGoTo
+  else
+    OpenGoTo;
+end;
+
+procedure TMainForm.OpenGoTo;
+var
+  Scope: TGoToScope;
+  Chip: string;
+begin
+  if (FViewModel = nil) or not FViewModel.GoToScope(Scope) then
+    Exit;
+  if Scope.Kind = ckBook then
+  begin
+    Chip := FViewModel.ModuleTitle(Scope.ModuleId);
+    FGoToEdit.TextHint := L('goto.placeholder.book');
+  end
+  else
+  begin
+    Chip := FViewModel.BookTitle(Scope.Book) + ' · ' + FViewModel.ModuleTitle(Scope.ModuleId);
+    FGoToEdit.TextHint := L('goto.placeholder.bible');
+  end;
+  FGoToChip.Caption := Chip;
+  Canvas.Font := FGoToChip.Font;
+  FGoToChip.Width := Canvas.TextWidth(Chip) + ScaleValue(20);
+  if not FGoToPanel.Visible then
+    FGoToEdit.Text := '';
+  PlaceGoTo;
+  UpdateGoToStatus;
+  FGoToPanel.Visible := True;
+  FGoToPanel.BringToFront;
+  if FGoToEdit.CanFocus then
+  begin
+    FGoToEdit.SetFocus;
+    FGoToEdit.SelectAll;
+  end;
+end;
+
+procedure TMainForm.CloseGoTo;
+begin
+  if not FGoToPanel.Visible then
+    Exit;
+  FGoToPanel.Visible := False;
+  if not FocusReaderOrList and redReader.CanFocus then
+    redReader.SetFocus;
+end;
+
+// Centred over the text column; the chip at most about half of the width.
+procedure TMainForm.PlaceGoTo;
+var
+  Column: TRect;
+  P: TPoint;
+  W, X, Top, Inner, GoW, EditX: Integer;
+begin
+  P := ScreenToClient(pnlColumn.ClientToScreen(Point(0, 0)));
+  Column := Rect(P.X, P.Y, P.X + pnlColumn.Width, P.Y + pnlColumn.Height);
+  W := Min(ScaleValue(520), ClientWidth - ScaleValue(32));
+  X := EnsureRange((Column.Left + Column.Right) div 2 - W div 2, ScaleValue(16),
+    Max(ScaleValue(16), ClientWidth - W - ScaleValue(16)));
+  if FHeader.Visible then
+    Top := FHeader.Top + FHeader.Height + ScaleValue(13)
+  else
+    Top := ScaleValue(13);
+  FGoToPanel.SetBounds(X, Top, W, FGoToPanel.Height);
+
+  Inner := W - 2;
+  GoW := FGoToGo.PillWidth;
+  FGoToGo.SetBounds(Inner - ScaleValue(16) - GoW, ScaleValue(14), GoW, ScaleValue(30));
+  FGoToChip.Width := Min(FGoToChip.Width, Inner div 2);
+  EditX := FGoToChip.Left + FGoToChip.Width + ScaleValue(10);
+  FGoToEdit.SetBounds(EditX, ScaleValue(15), Max(FGoToGo.Left - ScaleValue(10) - EditX, 0),
+    ScaleValue(28));
+  FGoToStatus.SetBounds(ScaleValue(16), ScaleValue(56), Inner - ScaleValue(32), ScaleValue(20));
+  FGoToKeys.Left := ScaleValue(16);
+  FGoToKeys.Top := ScaleValue(94);
+end;
+
+procedure TMainForm.UpdateGoToStatus;
+var
+  T: TGoToTarget;
+  Text: string;
+  Color: TColor;
+  Bible: Boolean;
+begin
+  T := FViewModel.ResolveGoTo(FGoToEdit.Text);
+  FGoToTarget := T;
+  Bible := T.Kind = ckBibleTranslation;
+  Color := ColorGoToError;
+  case T.Status of
+    gtEmpty:
+      begin
+        Color := ColorMuted;
+        if Bible then
+          Text := L('goto.status.bible')
+        else
+          Text := L('goto.status.book');
+      end;
+    gtOk:
+      begin
+        Color := ColorAccentHover;
+        if not Bible then
+          Text := L('goto.ok.page', [FViewModel.ModuleTitle(T.Chapter.ModuleId),
+            L('read.chapter', [T.Chapter.ChapterOrder]), T.Page])
+        else if T.Verse > 0 then
+          Text := L('goto.ok.verse', [FViewModel.BookTitle(T.BibleChapter.Book),
+            T.BibleChapter.ChapterNumber, T.Verse])
+        else
+          Text := L('goto.ok.chapter', [FViewModel.BookTitle(T.BibleChapter.Book),
+            T.BibleChapter.ChapterNumber]);
+        if T.StartsInside then
+          Text := Text + ' ' + L('goto.toast.inside');
+      end;
+    gtOtherBook: Text := L('goto.otherBook');
+    gtPageOnly: Text := L('goto.pageOnly');
+    gtBadFormat:
+      if Bible then
+        Text := L('goto.badFormat.bible')
+      else
+        Text := L('goto.badFormat.book');
+    gtNoPages: Text := L('goto.noPages');
+    gtPageOutOfRange: Text := L('goto.pageOutOfRange', [T.First, T.Last]);
+    gtChapterOutOfRange:
+      Text := L('goto.chapterOutOfRange', [FViewModel.BookTitle(T.BibleChapter.Book), T.Last]);
+    gtVerseOutOfRange:
+      Text := L('goto.verseOutOfRange', [T.BibleChapter.ChapterNumber, T.First, T.Last]);
+  else
+    Text := L('goto.failed');
+  end;
+  FGoToStatus.Caption := Text;
+  FGoToStatus.Font.Color := Color;
+  FGoToGo.Enabled := T.Status = gtOk;
+end;
+
+procedure TMainForm.GoToEditChange(Sender: TObject);
+begin
+  if FGoToPanel.Visible then
+    UpdateGoToStatus;
+end;
+
+procedure TMainForm.GoToEditKeyPress(Sender: TObject; var Key: Char);
+begin
+  case Key of
+    #13:
+      begin
+        Key := #0;                       // no beep
+        GoToGoClick(nil);
+      end;
+    #27:
+      Key := #0;                         // FormKeyDown has closed the field
+  end;
+end;
+
+procedure TMainForm.GoToGoClick(Sender: TObject);
+var
+  T: TGoToTarget;
+  Text: string;
+begin
+  UpdateGoToStatus;
+  T := FGoToTarget;
+  if T.Status <> gtOk then
+    Exit;
+  CloseGoTo;
+  FViewModel.GoToPage(T);
+  if T.Kind = ckBook then
+  begin
+    Text := L('goto.toast.page', [FViewModel.ModuleTitle(T.Chapter.ModuleId),
+      L('read.chapter', [T.Chapter.ChapterOrder]), T.Page]);
+    if T.StartsInside then
+      Text := Text + ' ' + L('goto.toast.inside');
+  end
+  else if T.Verse > 0 then
+    Text := L('goto.toast.verse', [FViewModel.BookTitle(T.BibleChapter.Book),
+      T.BibleChapter.ChapterNumber, T.Verse])
+  else
+    Text := L('goto.toast.chapter', [FViewModel.BookTitle(T.BibleChapter.Book),
+      T.BibleChapter.ChapterNumber]);
+  ShowToast(Text);
+end;
+
+// The paragraph (verse) of the shown document whose LogicalIndex (VerseNumber)
+// is Target: the reader scrolls to it, the strip stands beside it for 2.5 s.
+// Not in the document (the chapter title) - the top of the chapter.
+procedure TMainForm.MarkParagraph(Target: Integer);
+var
+  I: Integer;
+begin
+  if Target < 0 then
+    Exit;
+  FMarkLen := 0;
+  for I := 0 to High(FDoc.Paragraphs) do
+    if FDoc.Paragraphs[I].LogicalIndex = Target then
+    begin
+      FMarkStart := FDoc.Paragraphs[I].StartChar;
+      FMarkLen := Max(FDoc.Paragraphs[I].Len, 1);
+      ScrollToChar(redReader, FDoc.Paragraphs[I].StartChar - FDoc.Paragraphs[I].MarkerLen);
+      Break;
+    end;
+  if FMarkLen = 0 then
+    ScrollToChar(redReader, 0);
+  HideReaderCaret;
+  redReader.Invalidate;
+  FGoToMarkTimer.Enabled := False;
+  FGoToMarkTimer.Enabled := FMarkLen > 0;
+end;
+
+procedure TMainForm.GoToMarkTimer(Sender: TObject);
+begin
+  FGoToMarkTimer.Enabled := False;
+  FMarkLen := 0;
+  redReader.Invalidate;
+end;
+
+procedure TMainForm.ShowToast(const Text: string);
+begin
+  FToastText.Caption := Text;
+  FToast.SetBounds(0, 0, FToastText.Width + ScaleValue(32), FToastText.Height + ScaleValue(20));
+  FToast.Left := Max((pnlCenter.ClientWidth - FToast.Width) div 2, 0);
+  FToast.Top := pnlCenter.ClientHeight - FToast.Height - ScaleValue(28);
+  FToast.Visible := True;
+  FToast.BringToFront;
+  FToastTimer.Enabled := False;
+  FToastTimer.Enabled := True;
+end;
+
+procedure TMainForm.ToastTimer(Sender: TObject);
+begin
+  FToastTimer.Enabled := False;
+  FToast.Visible := False;
 end;
 
 { menu }
