@@ -32,6 +32,7 @@ uses
   Presentation.Theme in '..\Presentation\Presentation.Theme.pas',
   Presentation.ChapterRtf in '..\Presentation\Presentation.ChapterRtf.pas',
   Presentation.SearchResults in '..\Presentation\Presentation.SearchResults.pas',
+  Presentation.GoToPage in '..\Presentation\Presentation.GoToPage.pas',
   Shell.RichEdit in '..\Vcl\Shell.RichEdit.pas',
   Slovo.TestSupport in 'Slovo.TestSupport.pas',
   Core.Domain.Tests in 'Core.Domain.Tests.pas',

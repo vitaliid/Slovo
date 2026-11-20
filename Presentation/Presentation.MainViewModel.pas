@@ -57,6 +57,8 @@ type
     Content: TChapterContent;
     Hits: TArray<TParagraphHit>;
     Focus: Integer;
+    Target: Integer;                  // E-24: LogicalIndex to scroll to and mark; -1 = none
+    TargetStartsInside: Boolean;      // the page starts inside Target (the line under the text)
   end;
 
   TBibleChapterLoadedArgs = record
@@ -64,6 +66,31 @@ type
     BookTitle: string;
     Hits: TArray<TVerseHit>;
     Focus: Integer;
+    Target: Integer;                  // E-24: VerseNumber to scroll to and mark; -1 = none
+  end;
+
+  // E-24 (Slovo_04 A.7): going to a page of the current book. The form composes
+  // the status line from Status and the numbers - the ViewModel has no localizer.
+  TGoToStatus = (gtEmpty, gtOk, gtOtherBook, gtPageOnly, gtBadFormat, gtNoPages,
+    gtPageOutOfRange, gtChapterOutOfRange, gtVerseOutOfRange, gtFailed);
+
+  // Whose page the field goes to: a book, or one book of a Bible translation.
+  TGoToScope = record
+    Kind: TContentKind;
+    ModuleId: TModuleId;
+    Book: TBookRef;                   // ckBibleTranslation
+  end;
+
+  TGoToTarget = record
+    Status: TGoToStatus;
+    Kind: TContentKind;
+    Chapter: TChapterRef;             // ckBook: the chapter where the page starts
+    Paragraph: Integer;               //         LogicalIndex of that paragraph
+    Page: Integer;
+    StartsInside: Boolean;
+    BibleChapter: TBibleChapterRef;   // ckBibleTranslation
+    Verse: Integer;                   // 0 = the start of the chapter
+    First, Last: Integer;             // bounds for the error text: pages / chapters / verses
   end;
 
   TMainViewModel = class
@@ -86,6 +113,8 @@ type
     FActiveQuery: TSearchQuery;
     FHasActiveQuery: Boolean;
     FPendingFocus: Integer;             // LogicalIndex / VerseNumber to focus; -1 = none
+    FPendingTarget: Integer;            // E-24: LogicalIndex / VerseNumber to go to; -1 = none
+    FPendingStartsInside: Boolean;
     FStarting: Boolean;                 // phase 1: failures go to the log, not the banner (E-16)
 
     FOnLibraryChanged: TEvent<TArray<TLibraryNode>>;
@@ -139,6 +168,15 @@ type
     procedure OpenSearchResult(const Ref: TParagraphRef); overload;
     procedure OpenSearchResult(const Ref: TVerseRef); overload;
 
+    // ---- Go to a page of the current book (E-24, Slovo_04 A.7)
+    // The book of the open chapter or of its table of contents; on the shelf -
+    // the book of the reading position. False - nothing to go in (no button).
+    function GoToScope(out Scope: TGoToScope): Boolean;
+    // On every change of the field; reads the database, changes nothing.
+    function ResolveGoTo(const Text: string): TGoToTarget;
+    // gtOk - opens the chapter with Target; anything else - nothing.
+    procedure GoToPage(const Target: TGoToTarget);
+
     // ---- Lookups for the form - all from the catalog
     function ModuleTitle(const ModuleId: TModuleId): string;
     function ChapterTitle(const Ref: TChapterRef): string;
@@ -181,7 +219,8 @@ implementation
 
 uses
   System.Diagnostics,
-  System.Generics.Defaults;
+  System.Generics.Defaults,
+  Presentation.GoToPage;
 
 { TMainViewModel }
 
@@ -196,6 +235,7 @@ begin
   FLogger := ALogger;
   FChecked := TList<TModuleId>.Create;
   FPendingFocus := -1;
+  FPendingTarget := -1;
   FView := rvShelf;
   FShelfCategory := bcSpiritOfProphecy;
 
@@ -505,12 +545,17 @@ var
   Hits: TResult<TArray<TParagraphHit>>;
   Args: TChapterLoadedArgs;
   P: TReadingPosition;
-  Focus, I: Integer;
+  Focus, Target, I: Integer;
+  StartsInside: Boolean;
   Watch: TStopwatch;
   ReadMs: Double;
 begin
   Focus := FPendingFocus;
   FPendingFocus := -1;
+  Target := FPendingTarget;
+  StartsInside := FPendingStartsInside;
+  FPendingTarget := -1;
+  FPendingStartsInside := False;
   if not FCatalog.IsValid(Ref) then
   begin
     ReportError(reNotFound, Format('OpenChapter %s:%d', [string(Ref.ModuleId), Ref.ChapterOrder]));
@@ -529,6 +574,8 @@ begin
   Args := Default(TChapterLoadedArgs);
   Args.Content := Content.Value;
   Args.Focus := -1;
+  Args.Target := Target;
+  Args.TargetStartsInside := StartsInside;
   if FHasActiveQuery then
   begin
     Hits := FSearchIndex.FindInChapter(FActiveQuery, Ref);
@@ -563,12 +610,15 @@ var
   Hits: TResult<TArray<TVerseHit>>;
   Args: TBibleChapterLoadedArgs;
   P: TReadingPosition;
-  Focus, I: Integer;
+  Focus, Target, I: Integer;
   Watch: TStopwatch;
   ReadMs: Double;
 begin
   Focus := FPendingFocus;
   FPendingFocus := -1;
+  Target := FPendingTarget;
+  FPendingTarget := -1;
+  FPendingStartsInside := False;
   if not FCatalog.IsValid(Ref) then
   begin
     ReportError(reNotFound, Format('OpenChapter %s:%s:%d',
@@ -590,6 +640,7 @@ begin
   Args.Content := Content.Value;
   Args.BookTitle := FCatalog.BookTitle(Ref.Book);
   Args.Focus := -1;
+  Args.Target := Target;
   if FHasActiveQuery then
   begin
     Hits := FSearchIndex.FindInBibleChapter(FActiveQuery, Ref);
@@ -851,6 +902,161 @@ procedure TMainViewModel.OpenSearchResult(const Ref: TVerseRef);
 begin
   FPendingFocus := Ref.VerseNumber;
   OpenChapter(Ref.Chapter);
+end;
+
+// ---------------------------------------------------------------- go to a page (E-24)
+
+function TMainViewModel.GoToScope(out Scope: TGoToScope): Boolean;
+var
+  M: TModule;
+begin
+  Scope := Default(TGoToScope);
+  if FView = rvToc then
+  begin
+    if FTocBook.BookCode <> '' then
+    begin
+      Scope.Kind := ckBibleTranslation;
+      Scope.ModuleId := FTocBook.ModuleId;
+      Scope.Book := FTocBook;
+      Exit(True);
+    end;
+    if FCatalog.FindModule(FTocModule, M) and (M.Kind = ckBook) then
+    begin
+      Scope.Kind := ckBook;
+      Scope.ModuleId := FTocModule;
+      Exit(True);
+    end;
+    // the list of books of a translation: the reading position decides
+  end;
+  if not FHasPosition then
+    Exit(False);
+  Scope.Kind := FPosition.Kind;
+  if FPosition.Kind = ckBook then
+    Scope.ModuleId := FPosition.Chapter.ModuleId
+  else
+  begin
+    Scope.Book := FPosition.BibleChapter.Book;
+    Scope.ModuleId := Scope.Book.ModuleId;
+  end;
+  Result := True;
+end;
+
+function TMainViewModel.ResolveGoTo(const Text: string): TGoToTarget;
+var
+  Scope: TGoToScope;
+  Input: TGoToInput;
+  Page: TResult<TPageLookup>;
+  Books: TArray<TBookInfo>;
+  Chapter: TResult<TBibleChapterContent>;
+  Verses: TArray<TVerseContent>;
+  I: Integer;
+begin
+  Result := Default(TGoToTarget);     // gtEmpty
+  if not GoToScope(Scope) then
+    Exit;
+  Result.Kind := Scope.Kind;
+  Input := ParseGoTo(Text);
+  case Input.Kind of
+    giEmpty: Exit;
+    giLetters:
+      begin
+        Result.Status := gtOtherBook;
+        Exit;
+      end;
+    giBad:
+      begin
+        Result.Status := gtBadFormat;
+        Exit;
+      end;
+  end;
+
+  if Scope.Kind = ckBook then
+  begin
+    // E-24: a page only - no paragraph on the page (Vitalii, 2026-11-18).
+    if Input.Kind = giPair then
+    begin
+      Result.Status := gtPageOnly;
+      Exit;
+    end;
+    Result.Page := Input.First;
+    Page := FLibrary.FindPage(Scope.ModuleId, Input.First);
+    if not Page.IsSuccess then
+    begin
+      Result.Status := gtFailed;
+      Exit;
+    end;
+    Result.First := Page.Value.FirstPage;
+    Result.Last := Page.Value.LastPage;
+    if Page.Value.LastPage = 0 then
+      Result.Status := gtNoPages
+    else if not Page.Value.Found then
+      Result.Status := gtPageOutOfRange
+    else
+    begin
+      Result.Status := gtOk;
+      Result.Chapter := Page.Value.Paragraph.Chapter;
+      Result.Paragraph := Page.Value.Paragraph.LogicalIndex;
+      Result.StartsInside := Page.Value.StartsInside;
+    end;
+    Exit;
+  end;
+
+  // The Bible: a chapter of the current book, or a chapter and a verse (B-22).
+  Result.BibleChapter.Book := Scope.Book;
+  Result.BibleChapter.ChapterNumber := Input.First;
+  Books := FCatalog.Books(Scope.Book.ModuleId);
+  Result.First := 1;
+  for I := 0 to High(Books) do
+    if Books[I].Ref.BookCode = Scope.Book.BookCode then
+      Result.Last := Books[I].ChapterCount;
+  if (Input.First < 1) or (Input.First > Result.Last) then
+  begin
+    Result.Status := gtChapterOutOfRange;
+    Exit;
+  end;
+  if Input.Kind = giNumber then
+  begin
+    Result.First := 0;
+    Result.Last := 0;
+    Result.Status := gtOk;
+    Exit;
+  end;
+
+  Chapter := FLibrary.GetBibleChapter(Result.BibleChapter);
+  if not Chapter.IsSuccess or (Length(Chapter.Value.Verses) = 0) then
+  begin
+    Result.Status := gtFailed;
+    Exit;
+  end;
+  Verses := Chapter.Value.Verses;
+  Result.First := Verses[0].Ref.VerseNumber;
+  Result.Last := Verses[High(Verses)].Ref.VerseNumber;
+  Result.Status := gtVerseOutOfRange;
+  for I := 0 to High(Verses) do
+    if Verses[I].Ref.VerseNumber = Input.Second then
+    begin
+      Result.Status := gtOk;
+      Result.Verse := Input.Second;
+      Exit;
+    end;
+end;
+
+procedure TMainViewModel.GoToPage(const Target: TGoToTarget);
+begin
+  if Target.Status <> gtOk then
+    Exit;
+  if Target.Kind = ckBook then
+  begin
+    FPendingTarget := Target.Paragraph;
+    FPendingStartsInside := Target.StartsInside;
+    OpenChapter(Target.Chapter);
+  end
+  else
+  begin
+    if Target.Verse > 0 then
+      FPendingTarget := Target.Verse;
+    OpenChapter(Target.BibleChapter);
+  end;
 end;
 
 // ---------------------------------------------------------------- lookups

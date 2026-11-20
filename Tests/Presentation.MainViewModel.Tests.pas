@@ -15,6 +15,7 @@ uses
   Core.Contracts,
   Core.Events,
   Presentation.MainViewModel,
+  Presentation.GoToPage,
   Slovo.TestSupport;
 
 type
@@ -22,6 +23,12 @@ type
   public
     FailWith: TResultError;              // reNone = success
     Calls: Integer;
+    VerseCount: Integer;                 // GetBibleChapter gives verses 1..VerseCount
+    PageLookup: TPageLookup;             // every FindPage answers with this
+    PageError: TResultError;
+    PageCalls: Integer;
+    PageModule: string;
+    PageNumber: Integer;
     function LoadCatalog: TLibraryCatalog;
     function GetChapterContent(const Ref: TChapterRef): TResult<TChapterContent>;
     function GetBibleChapter(const Ref: TBibleChapterRef): TResult<TBibleChapterContent>;
@@ -51,6 +58,17 @@ type
     function SearchBible(const Query: TSearchQuery; const Window: TSearchWindow): TResult<TArray<TBibleSearchResult>>;
     function FindInChapter(const Query: TSearchQuery; const Ref: TChapterRef): TResult<TArray<TParagraphHit>>;
     function FindInBibleChapter(const Query: TSearchQuery; const Ref: TBibleChapterRef): TResult<TArray<TVerseHit>>;
+  end;
+
+  [TestFixture]
+  TGoToParseTests = class
+  public
+    [Test] procedure Empty_AndSpaces;
+    [Test] procedure Number;
+    [Test] procedure Pair_AnySeparator;
+    [Test] procedure SeparatorWithoutSecondNumber_IsANumber;
+    [Test] procedure Letters_AreAnotherBook;
+    [Test] procedure Bad;
   end;
 
   [TestFixture]
@@ -111,6 +129,15 @@ type
     [Test] procedure OpenSearchResult_FocusesThatParagraph;
     [Test] procedure NextPrevious_Bible_CrossesBookButNotModule;
     [Test] procedure ReportUnexpected_LogsAndFires;
+
+    // E-24
+    [Test] procedure GoTo_NoPosition_NoScope;
+    [Test] procedure GoTo_Scope_TocOfABook_AndPosition;
+    [Test] procedure GoTo_Book_PageFound;
+    [Test] procedure GoTo_Book_WhatIsNotAPage;
+    [Test] procedure GoTo_Book_PageMissing;
+    [Test] procedure GoTo_Book_OpensTheChapterWithTarget;
+    [Test] procedure GoTo_Bible_ChapterAndVerse;
   end;
 
 implementation
@@ -142,18 +169,93 @@ end;
 function TFakeLibrary.GetBibleChapter(const Ref: TBibleChapterRef): TResult<TBibleChapterContent>;
 var
   C: TBibleChapterContent;
+  I: Integer;
 begin
   Inc(Calls);
   if FailWith <> reNone then
     Exit(TResult<TBibleChapterContent>.Failure(FailWith));
   C := Default(TBibleChapterContent);
   C.Ref := Ref;
+  SetLength(C.Verses, VerseCount);
+  for I := 0 to VerseCount - 1 do
+  begin
+    C.Verses[I].Ref.Chapter := Ref;
+    C.Verses[I].Ref.VerseNumber := I + 1;
+    C.Verses[I].Text := Format('verse %d', [I + 1]);
+  end;
   Result := TResult<TBibleChapterContent>.Success(C);
 end;
 
 function TFakeLibrary.FindPage(const ModuleId: TModuleId; PageNumber: Integer): TResult<TPageLookup>;
 begin
-  Result := TResult<TPageLookup>.Success(Default(TPageLookup));
+  Inc(PageCalls);
+  PageModule := ModuleId;
+  Self.PageNumber := PageNumber;
+  if PageError <> reNone then
+    Exit(TResult<TPageLookup>.Failure(PageError));
+  Result := TResult<TPageLookup>.Success(PageLookup);
+end;
+
+{ TGoToParseTests }
+
+procedure TGoToParseTests.Empty_AndSpaces;
+begin
+  Assert.IsTrue(ParseGoTo('').Kind = giEmpty);
+  Assert.IsTrue(ParseGoTo('   ').Kind = giEmpty);
+end;
+
+procedure TGoToParseTests.Number;
+var
+  R: TGoToInput;
+begin
+  R := ParseGoTo(' 71 ');
+  Assert.IsTrue(R.Kind = giNumber);
+  Assert.AreEqual(71, R.First);
+  Assert.AreEqual(0, ParseGoTo('0').First);
+  Assert.IsTrue(ParseGoTo('99999').Kind = giNumber);
+end;
+
+procedure TGoToParseTests.Pair_AnySeparator;
+const
+  Texts: array[0..5] of string = ('3:4', '3.4', '3,4', '3 4', ' 3 : 4 ', '3  .  4');
+var
+  S: string;
+  R: TGoToInput;
+begin
+  for S in Texts do
+  begin
+    R := ParseGoTo(S);
+    Assert.IsTrue(R.Kind = giPair, S);
+    Assert.AreEqual(3, R.First, S);
+    Assert.AreEqual(4, R.Second, S);
+  end;
+end;
+
+procedure TGoToParseTests.SeparatorWithoutSecondNumber_IsANumber;
+var
+  R: TGoToInput;
+begin
+  R := ParseGoTo('3:');
+  Assert.IsTrue(R.Kind = giNumber);
+  Assert.AreEqual(3, R.First);
+  Assert.IsTrue(ParseGoTo('3 .').Kind = giNumber);
+end;
+
+procedure TGoToParseTests.Letters_AreAnotherBook;
+begin
+  Assert.IsTrue(ParseGoTo('ПП 71').Kind = giLetters);
+  Assert.IsTrue(ParseGoTo('Бут 3:4').Kind = giLetters);
+  Assert.IsTrue(ParseGoTo('a').Kind = giLetters);
+end;
+
+procedure TGoToParseTests.Bad;
+const
+  Texts: array[0..7] of string = ('3::4', ':4', '3:4:5', '-1', '123456', '3/4', '3 4 5', '+7');
+var
+  S: string;
+begin
+  for S in Texts do
+    Assert.IsTrue(ParseGoTo(S).Kind = giBad, S);
 end;
 
 { TFakeSearch }
@@ -746,7 +848,177 @@ begin
   Assert.AreEqual(1, Integer(FErrors.Count), 'render problems go to the log only (E-01)');
 end;
 
+{ E-24: go to a page }
+
+procedure TMainViewModelTests.GoTo_NoPosition_NoScope;
+var
+  Scope: TGoToScope;
+begin
+  CreateViewModel;
+  FVM.Start;
+  Assert.IsFalse(FVM.GoToScope(Scope));
+  Assert.IsTrue(FVM.ResolveGoTo('71').Status = gtEmpty);
+  Assert.AreEqual(0, FLibrary.PageCalls);
+  // the list of books of a translation is no book either
+  FVM.ShowToc('ohienko-uk');
+  Assert.IsFalse(FVM.GoToScope(Scope));
+end;
+
+procedure TMainViewModelTests.GoTo_Scope_TocOfABook_AndPosition;
+var
+  Scope: TGoToScope;
+  Book: TBookRef;
+begin
+  CreateViewModel;
+  FVM.Start;
+  FVM.OpenChapter(ChapterRef('PP', 2));
+  Assert.IsTrue(FVM.GoToScope(Scope));
+  Assert.IsTrue(Scope.Kind = ckBook);
+  Assert.AreEqual('PP', string(Scope.ModuleId));
+
+  FVM.ShowToc('DA');
+  Assert.IsTrue(FVM.GoToScope(Scope));
+  Assert.AreEqual('DA', string(Scope.ModuleId), 'the table of contents shown');
+
+  FVM.ShowShelf(bcHistory);
+  Assert.IsTrue(FVM.GoToScope(Scope));
+  Assert.AreEqual('PP', string(Scope.ModuleId), 'the shelf: the reading position');
+
+  Book.ModuleId := 'ohienko-uk';
+  Book.BookCode := 'EXO';
+  FVM.ShowToc(Book);
+  Assert.IsTrue(FVM.GoToScope(Scope));
+  Assert.IsTrue(Scope.Kind = ckBibleTranslation);
+  Assert.AreEqual('EXO', string(Scope.Book.BookCode));
+end;
+
+procedure TMainViewModelTests.GoTo_Book_PageFound;
+var
+  R: TGoToTarget;
+begin
+  CreateViewModel;
+  FVM.Start;
+  FVM.OpenChapter(ChapterRef('PP', 1));
+  FLibrary.PageLookup.Found := True;
+  FLibrary.PageLookup.Paragraph.Chapter := ChapterRef('PP', 3);
+  FLibrary.PageLookup.Paragraph.LogicalIndex := 5;
+  FLibrary.PageLookup.StartsInside := True;
+  FLibrary.PageLookup.FirstPage := 33;
+  FLibrary.PageLookup.LastPage := 790;
+  R := FVM.ResolveGoTo(' 71 ');
+  Assert.IsTrue(R.Status = gtOk);
+  Assert.AreEqual('PP', FLibrary.PageModule);
+  Assert.AreEqual(71, FLibrary.PageNumber);
+  Assert.AreEqual(3, R.Chapter.ChapterOrder);
+  Assert.AreEqual(5, R.Paragraph);
+  Assert.AreEqual(71, R.Page);
+  Assert.IsTrue(R.StartsInside);
+end;
+
+procedure TMainViewModelTests.GoTo_Book_WhatIsNotAPage;
+begin
+  CreateViewModel;
+  FVM.Start;
+  FVM.OpenChapter(ChapterRef('PP', 1));
+  Assert.IsTrue(FVM.ResolveGoTo('').Status = gtEmpty);
+  Assert.IsTrue(FVM.ResolveGoTo('71.2').Status = gtPageOnly);
+  Assert.IsTrue(FVM.ResolveGoTo('ПП 71').Status = gtOtherBook);
+  Assert.IsTrue(FVM.ResolveGoTo('7-1').Status = gtBadFormat);
+  Assert.AreEqual(0, FLibrary.PageCalls, 'nothing to look up');
+end;
+
+procedure TMainViewModelTests.GoTo_Book_PageMissing;
+var
+  R: TGoToTarget;
+begin
+  CreateViewModel;
+  FVM.Start;
+  FVM.OpenChapter(ChapterRef('PP', 1));
+  FLibrary.PageLookup.FirstPage := 33;
+  FLibrary.PageLookup.LastPage := 790;
+  R := FVM.ResolveGoTo('900');
+  Assert.IsTrue(R.Status = gtPageOutOfRange);
+  Assert.AreEqual(33, R.First);
+  Assert.AreEqual(790, R.Last);
+
+  FLibrary.PageLookup := Default(TPageLookup);
+  Assert.IsTrue(FVM.ResolveGoTo('5').Status = gtNoPages);
+
+  FLibrary.PageError := reIOFailure;
+  Assert.IsTrue(FVM.ResolveGoTo('5').Status = gtFailed);
+  Assert.AreEqual(0, Integer(FErrors.Count), 'resolving shows no banner');
+end;
+
+procedure TMainViewModelTests.GoTo_Book_OpensTheChapterWithTarget;
+var
+  R: TGoToTarget;
+  Before: Integer;
+begin
+  CreateViewModel;
+  FVM.Start;
+  FVM.OpenChapter(ChapterRef('PP', 1));
+  FLibrary.PageLookup.Found := True;
+  FLibrary.PageLookup.Paragraph.Chapter := ChapterRef('PP', 3);
+  FLibrary.PageLookup.Paragraph.LogicalIndex := 5;
+  FLibrary.PageLookup.StartsInside := True;
+  FLibrary.PageLookup.FirstPage := 33;
+  FLibrary.PageLookup.LastPage := 790;
+
+  Before := FLoaded.Count;
+  FVM.GoToPage(FVM.ResolveGoTo('900x'));
+  Assert.AreEqual(Before, Integer(FLoaded.Count), 'not gtOk - nothing opens');
+
+  R := FVM.ResolveGoTo('71');
+  FVM.GoToPage(R);
+  Assert.AreEqual(3, FLoaded.Last.Content.Ref.ChapterOrder);
+  Assert.AreEqual(5, FLoaded.Last.Target);
+  Assert.IsTrue(FLoaded.Last.TargetStartsInside);
+  Assert.AreEqual(-1, FLoaded.Last.Focus);
+  Assert.IsTrue(FVM.View = rvRead);
+  // one-shot: plain navigation afterwards has no target
+  FVM.OpenChapter(ChapterRef('PP', 3));
+  Assert.AreEqual(-1, FLoaded.Last.Target);
+  Assert.IsFalse(FLoaded.Last.TargetStartsInside);
+end;
+
+procedure TMainViewModelTests.GoTo_Bible_ChapterAndVerse;
+var
+  R: TGoToTarget;
+begin
+  CreateViewModel;
+  FVM.Start;
+  FVM.OpenChapter(BibleRef('ohienko-uk', 'GEN', 1));
+  FLibrary.VerseCount := 24;
+
+  R := FVM.ResolveGoTo('51');
+  Assert.IsTrue(R.Status = gtChapterOutOfRange);
+  Assert.AreEqual(1, R.First);
+  Assert.AreEqual(50, R.Last);
+  Assert.IsTrue(FVM.ResolveGoTo('0').Status = gtChapterOutOfRange);
+
+  R := FVM.ResolveGoTo('3');
+  Assert.IsTrue(R.Status = gtOk);
+  Assert.AreEqual(0, R.Verse);
+  FVM.GoToPage(R);
+  Assert.AreEqual(3, FBibleLoaded.Last.Content.Ref.ChapterNumber);
+  Assert.AreEqual(-1, FBibleLoaded.Last.Target, 'a chapter alone - its top');
+
+  R := FVM.ResolveGoTo('3:30');
+  Assert.IsTrue(R.Status = gtVerseOutOfRange);
+  Assert.AreEqual(1, R.First);
+  Assert.AreEqual(24, R.Last);
+
+  R := FVM.ResolveGoTo('3:4');
+  Assert.IsTrue(R.Status = gtOk);
+  FVM.GoToPage(R);
+  Assert.AreEqual('GEN', string(FBibleLoaded.Last.Content.Ref.Book.BookCode));
+  Assert.AreEqual(3, FBibleLoaded.Last.Content.Ref.ChapterNumber);
+  Assert.AreEqual(4, FBibleLoaded.Last.Target);
+  Assert.AreEqual(0, FLibrary.PageCalls, 'the Bible has no pages');
+end;
+
 initialization
+  TDUnitX.RegisterTestFixture(TGoToParseTests);
   TDUnitX.RegisterTestFixture(TEventTests);
   TDUnitX.RegisterTestFixture(TMainViewModelTests);
 
